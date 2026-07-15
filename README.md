@@ -6,9 +6,9 @@ O projeto foi modularizado preservando os controles, a física, o layout da fase
 
 ## Jogar
 
-[Jogar online pelo GitHub Pages](https://marcoantoniobarreiros.github.io/beans-for-a-living-soil-play/)
+[Jogar a versão procedural pelo GitHub Pages](https://marcoantoniobarreiros.github.io/Miguelito-Game/)
 
-A versão autônoma está em `dist/index.html` e pode ser aberta diretamente no navegador, sem instalação e sem conexão com a internet.
+A publicação é reconstruída automaticamente a partir dos módulos em `src/`. A versão autônoma gerada fica em `dist/index.html` e pode ser aberta diretamente no navegador, sem instalação e sem conexão com a internet.
 
 Para executar a versão modular durante o desenvolvimento, inicie um servidor HTTP na raiz do projeto:
 
