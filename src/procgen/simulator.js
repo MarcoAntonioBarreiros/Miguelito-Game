@@ -10,6 +10,7 @@ import { createTrichodermaColonies } from './trichoderma-colonies.js';
 import { createBeneficialInoculants } from './beneficial-inoculants.js';
 import { createPseudomonasSiderophores } from './pseudomonas-siderophores.js';
 import { createBacillusBioprotection } from './bacillus-bioprotection.js';
+import { createBacillusBioprotectionSafety } from './bacillus-bioprotection-safety.js';
 import { createRhizobiumNodulation } from './rhizobium-nodulation.js';
 import { createAzospirillumRootGrowth } from './azospirillum-root-growth.js';
 import { createAzospirillumRootSafety } from './azospirillum-root-safety.js';
@@ -105,6 +106,10 @@ export function createSimulator() {
     ecology,
     inoculants: beneficialInoculants,
   });
+  const bacillusBioprotectionSafety = createBacillusBioprotectionSafety({
+    state,
+    inoculants: beneficialInoculants,
+  });
   const rhizobiumNodulation = createRhizobiumNodulation({ state, entities, inoculants: beneficialInoculants });
   const azospirillumRootGrowth = createAzospirillumRootGrowth({ state, entities, inoculants: beneficialInoculants });
   const azospirillumRootSafety = createAzospirillumRootSafety({ state, rootGrowth: azospirillumRootGrowth });
@@ -187,6 +192,7 @@ export function createSimulator() {
     trichodermaColonies.update(dt);
     gameplay.update(dt);
     bacillusBioprotection.update(dt);
+    bacillusBioprotectionSafety.update(dt);
     trichoderma.update(dt);
     mycorrhiza.update(dt);
     mycorrhizaStructures.update(dt);
@@ -197,8 +203,9 @@ export function createSimulator() {
   return {
     state, input, entities, ecology, mycorrhiza, mycorrhizaStructures,
     trichoderma, recruitment, trichodermaColonies, beneficialInoculants,
-    pseudomonasSiderophores, bacillusBioprotection, rhizobiumNodulation,
-    azospirillumRootGrowth, azospirillumRootSafety, goal, gameplay,
+    pseudomonasSiderophores, bacillusBioprotection, bacillusBioprotectionSafety,
+    rhizobiumNodulation, azospirillumRootGrowth, azospirillumRootSafety,
+    goal, gameplay,
     reset, resetEcology, resetBiology, setInputs, step,
   };
 }
