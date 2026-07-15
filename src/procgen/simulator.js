@@ -3,6 +3,7 @@ import { createPlayer, resetPlayer } from '../player.js';
 import { createMicrobeArt } from '../data/microbes.js';
 import { createRoamingMicrobeEcology } from './microbe-roaming.js';
 import { createMycorrhizaGrowth } from './mycorrhiza-growth.js';
+import { createTrichodermaGrowth } from './trichoderma-growth.js';
 import { createGoalSystem } from './goal-system.js';
 import { createEcologicalGameplay } from './ecological-gameplay.js';
 
@@ -36,12 +37,12 @@ export function createSimulator() {
   const entities = {
     burst: (x, y, color, count, speed) => {
       for (let i = 0; i < count; i++) {
-        const a = Math.random() * Math.PI * 2;
-        const v = Math.random() * speed;
+        const angle = Math.random() * Math.PI * 2;
+        const velocity = Math.random() * speed;
         state.level.particles.push({
           x, y,
-          vx: Math.cos(a) * v,
-          vy: Math.sin(a) * v,
+          vx: Math.cos(angle) * velocity,
+          vy: Math.sin(angle) * velocity,
           r: 1 + Math.random() * 2,
           color,
           life: .4 + Math.random() * .4,
@@ -62,7 +63,7 @@ export function createSimulator() {
   };
 
   const hud = {
-    setMission: m => { state.mission = m; },
+    setMission: mission => { state.mission = mission; },
     showToast: (title, desc) => {
       state.toast = `${title}: ${desc}`;
       state.toastTime = 4.7;
@@ -75,10 +76,12 @@ export function createSimulator() {
 
   const ecology = createRoamingMicrobeEcology({ state, entities });
   const mycorrhiza = createMycorrhizaGrowth({ state, entities });
+  const trichoderma = createTrichodermaGrowth({ state, entities, ecology });
   const goal = createGoalSystem({ state, entities });
   const gameplay = createEcologicalGameplay({ state, input, entities, ecology });
   state.microbeEcology = ecology;
   state.mycorrhizaGrowth = mycorrhiza;
+  state.trichodermaGrowth = trichoderma;
   state.goalSystem = goal;
   state.ecologicalGameplay = gameplay;
 
@@ -93,22 +96,26 @@ export function createSimulator() {
     state.level.hazards = [];
     ecology.clear();
     mycorrhiza.clear();
+    trichoderma.clear();
     goal.clear();
     gameplay.clear();
-    for (const k in input.keys) input.keys[k] = false;
+    for (const key in input.keys) input.keys[key] = false;
   }
 
-  function resetEcology(encounters) { ecology.reset(encounters); }
+  function resetEcology(encounters) {
+    ecology.reset(encounters);
+  }
 
   function resetBiology() {
     mycorrhiza.reset();
+    trichoderma.reset();
     goal.reset();
     gameplay.reset();
   }
 
   function setInputs(newKeys) {
-    for (const k in input.keys) input.keys[k] = false;
-    for (const k in newKeys) if (newKeys[k]) input.keys[k] = true;
+    for (const key in input.keys) input.keys[key] = false;
+    for (const key in newKeys) if (newKeys[key]) input.keys[key] = true;
   }
 
   function step(dt) {
@@ -116,13 +123,14 @@ export function createSimulator() {
     physics.update(dt);
     ecology.update(dt);
     gameplay.update(dt);
+    trichoderma.update(dt);
     mycorrhiza.update(dt);
     goal.update(dt);
     if (state.toastTime > 0) state.toastTime -= dt;
   }
 
   return {
-    state, input, entities, ecology, mycorrhiza, goal, gameplay,
+    state, input, entities, ecology, mycorrhiza, trichoderma, goal, gameplay,
     reset, resetEcology, resetBiology, setInputs, step,
   };
 }

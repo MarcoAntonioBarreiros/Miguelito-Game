@@ -14,7 +14,6 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
   const clouds = [];
   const biofilms = [];
   const formingBiofilms = new Map();
-  const attacks = new Map();
   let nextCloudId = 1;
   let eHeldLast = false;
   let infectionAnnounced = false;
@@ -28,7 +27,6 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
     clouds.length = 0;
     biofilms.length = 0;
     formingBiofilms.clear();
-    attacks.clear();
     eHeldLast = false;
     infectionAnnounced = false;
   }
@@ -45,6 +43,7 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
         x: checkpoint.x,
         y: checkpoint.y + 8,
         radius: 72,
+        targetRadius: 72,
         growth: 1,
         age: 12,
         activated: Boolean(checkpoint.active),
@@ -90,7 +89,9 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
       cloud.radius += (cloud.targetRadius - cloud.radius) * clamp(dt * 2.3, 0, 1);
       cloud.y += Math.sin(state.time * .9 + cloud.phase) * dt * 2.2;
     }
-    for (let i = clouds.length - 1; i >= 0; i--) if (clouds[i].life <= 0) clouds.splice(i, 1);
+    for (let i = clouds.length - 1; i >= 0; i--) {
+      if (clouds[i].life <= 0) clouds.splice(i, 1);
+    }
   }
 
   function attractionWeight(type) {
@@ -108,9 +109,9 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
       let best = null;
       let bestScore = Infinity;
       for (const cloud of clouds) {
-        const d = Math.hypot(cloud.x - agent.x, cloud.y - agent.y);
-        if (d > cloud.radius * 3.2) continue;
-        const score = d / attractionWeight(agent.type);
+        const distance = Math.hypot(cloud.x - agent.x, cloud.y - agent.y);
+        if (distance > cloud.radius * 3.2) continue;
+        const score = distance / attractionWeight(agent.type);
         if (score < bestScore) {
           best = cloud;
           bestScore = score;
@@ -119,13 +120,13 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
       if (!best) continue;
       const dx = best.x - agent.x;
       const dy = best.y - agent.y;
-      const d = Math.max(1, Math.hypot(dx, dy));
-      const gradient = clamp(1 - d / (best.radius * 3.2), 0, 1);
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const gradient = clamp(1 - distance / (best.radius * 3.2), 0, 1);
       const force = 165 * attractionWeight(agent.type) * gradient;
-      agent.vx += dx / d * force * dt;
-      agent.vy += dy / d * force * dt;
-      agent.homeX += dx / d * force * dt * .9;
-      agent.homeY += dy / d * force * dt * .7;
+      agent.vx += dx / distance * force * dt;
+      agent.vy += dy / distance * force * dt;
+      agent.homeX += dx / distance * force * dt * .9;
+      agent.homeY += dy / distance * force * dt * .7;
     }
   }
 
@@ -136,16 +137,23 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
     for (const agent of ecology.agents) {
       if (agent.type === 'oportunista' && Math.hypot(agent.x - center.x, agent.y - center.y) < 38) contacts++;
     }
-    if (contacts > 0) player.infectionExposure = clamp((player.infectionExposure || 0) + dt * (1.15 + contacts * .35), 0, 1.4);
-    else player.infectionExposure = Math.max(0, (player.infectionExposure || 0) - dt * .72);
-    if (player.infectionExposure > .48) player.infection = clamp((player.infection || 0) + dt * (.12 + contacts * .055), 0, 1);
+    if (contacts > 0) {
+      player.infectionExposure = clamp((player.infectionExposure || 0) + dt * (1.15 + contacts * .35), 0, 1.4);
+    } else {
+      player.infectionExposure = Math.max(0, (player.infectionExposure || 0) - dt * .72);
+    }
+    if (player.infectionExposure > .48) {
+      player.infection = clamp((player.infection || 0) + dt * (.12 + contacts * .055), 0, 1);
+    }
     if (player.infection > .06) {
       player.hope = Math.max(0, player.hope - dt * (.18 + player.infection * .58));
       if (!infectionAnnounced) {
         infectionAnnounced = true;
         toast('Contaminação oportunista', 'Propágulos aderiram. Procure Bacillus, Trichoderma ou use o Pulso para reduzir a infecção.', 5.2);
       }
-    } else if (player.infection <= .015) infectionAnnounced = false;
+    } else if (player.infection <= .015) {
+      infectionAnnounced = false;
+    }
     for (const pulse of state.level.pulses) {
       if (pulse.ecologyApplied) continue;
       pulse.ecologyApplied = true;
@@ -164,11 +172,11 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
     for (const platform of state.level.platforms) {
       if (platform.recovery || platform.final) continue;
       const point = nearestPointOnPlatform(x, y, platform);
-      const d = Math.hypot(point.x - x, point.y - y);
-      if (d < bestDistance) {
+      const distance = Math.hypot(point.x - x, point.y - y);
+      if (distance < bestDistance) {
         best = platform;
         bestPoint = point;
-        bestDistance = d;
+        bestDistance = distance;
       }
     }
     return best ? { platform: best, point: bestPoint, distance: bestDistance } : null;
@@ -177,8 +185,15 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
   function createBiofilm(point, platform) {
     if (biofilms.some(film => Math.abs(film.x - point.x) < 150)) return;
     biofilms.push({
-      x: point.x, y: point.y, radius: 18, targetRadius: 88,
-      growth: 0, age: 0, activated: false, platform, natural: false,
+      x: point.x,
+      y: point.y,
+      radius: 18,
+      targetRadius: 88,
+      growth: 0,
+      age: 0,
+      activated: false,
+      platform,
+      natural: false,
     });
     entities.burst(point.x, point.y, '#70e5d6', 38, 175);
     toast('Biofilme de Bacillus', 'A matriz aderida estabilizou a raiz e criou uma nova zona segura.', 4.8);
@@ -189,10 +204,18 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
     for (const cloud of clouds) {
       const support = nearestPlatform(cloud.x, cloud.y);
       if (!support) continue;
-      const bacilli = ecology.agents.filter(agent => agent.type === 'bacillus' && Math.hypot(agent.x - support.point.x, agent.y - support.point.y) < 112);
+      const bacilli = ecology.agents.filter(agent => (
+        agent.type === 'bacillus'
+        && Math.hypot(agent.x - support.point.x, agent.y - support.point.y) < 112
+      ));
       const key = `${cloud.id}:${support.platform.logicIndex ?? Math.round(support.platform.x)}`;
       if (bacilli.length >= 3) {
-        const current = formingBiofilms.get(key) || { progress: 0, x: support.point.x, y: support.point.y, platform: support.platform };
+        const current = formingBiofilms.get(key) || {
+          progress: 0,
+          x: support.point.x,
+          y: support.point.y,
+          platform: support.platform,
+        };
         current.progress += dt * clamp(bacilli.length / 4, .65, 1.8);
         current.x = support.point.x;
         current.y = support.point.y;
@@ -210,6 +233,7 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
         }
       }
     }
+
     const player = state.player;
     const center = { x: player.x + player.w / 2, y: player.y + player.h / 2 };
     for (const film of biofilms) {
@@ -231,60 +255,12 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
     }
   }
 
-  function updateTrichoderma(dt) {
-    const agents = ecology.agents;
-    const opportunists = agents.filter(agent => agent.type === 'oportunista');
-    const trichoderma = agents.filter(agent => agent.type === 'trichoderma');
-    const activeTargets = new Set();
-    for (const hunter of trichoderma) {
-      let target = null;
-      let bestDistance = 145;
-      for (const candidate of opportunists) {
-        const d = Math.hypot(candidate.x - hunter.x, candidate.y - hunter.y);
-        if (d < bestDistance) {
-          target = candidate;
-          bestDistance = d;
-        }
-      }
-      if (!target) continue;
-      activeTargets.add(target.id);
-      const record = attacks.get(target.id) || { target, hunter, progress: 0, phase: Math.random() * TAU };
-      record.target = target;
-      record.hunter = hunter;
-      record.progress += dt * (1.05 + (145 - bestDistance) / 145 * .85);
-      attacks.set(target.id, record);
-      const dx = target.x - hunter.x;
-      const dy = target.y - hunter.y;
-      const d = Math.max(1, Math.hypot(dx, dy));
-      hunter.vx += dx / d * 105 * dt;
-      hunter.vy += dy / d * 105 * dt;
-      target.vx *= Math.pow(.24, dt);
-      target.vy *= Math.pow(.24, dt);
-      if (record.progress >= 1.65) {
-        const index = agents.indexOf(target);
-        if (index >= 0) agents.splice(index, 1);
-        attacks.delete(target.id);
-        state.player.soil += 1.5;
-        state.player.hope += 2.2;
-        if (Math.hypot(target.x - (state.player.x + 16), target.y - (state.player.y + 24)) < 240) state.player.infection = Math.max(0, (state.player.infection || 0) - .12);
-        entities.burst(target.x, target.y, '#8df0a8', 34, 215);
-        entities.burst(target.x, target.y, '#ff8297', 18, 165);
-      }
-    }
-    for (const [id, record] of attacks) {
-      if (activeTargets.has(id)) continue;
-      record.progress = Math.max(0, record.progress - dt * .8);
-      if (record.progress <= 0) attacks.delete(id);
-    }
-  }
-
   function update(dt) {
     if (state.gameState !== 'play') return;
     updateClouds(dt);
     applyCloudTaxia(dt);
     updateInfection(dt);
     updateBiofilmFormation(dt);
-    updateTrichoderma(dt);
   }
 
   function drawCloud(ctx, cloud) {
@@ -299,12 +275,12 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
     ctx.arc(cloud.x, cloud.y, cloud.radius, 0, TAU);
     ctx.fill();
     for (let i = 0; i < 18; i++) {
-      const a = i / 18 * TAU + state.time * (.12 + (i % 3) * .04) + cloud.phase;
-      const r = cloud.radius * (.18 + (i % 6) / 7);
+      const angle = i / 18 * TAU + state.time * (.12 + (i % 3) * .04) + cloud.phase;
+      const radius = cloud.radius * (.18 + (i % 6) / 7);
       ctx.globalAlpha = alpha * (.25 + (i % 4) * .1);
       ctx.fillStyle = i % 2 ? '#d6ff94' : '#b7f36b';
       ctx.beginPath();
-      ctx.arc(cloud.x + Math.cos(a) * r, cloud.y + Math.sin(a * 1.3) * r * .55, 1.5 + i % 3, 0, TAU);
+      ctx.arc(cloud.x + Math.cos(angle) * radius, cloud.y + Math.sin(angle * 1.3) * radius * .55, 1.5 + i % 3, 0, TAU);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
@@ -332,43 +308,16 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
     ctx.stroke();
     ctx.setLineDash([]);
     for (let i = 0; i < 12; i++) {
-      const a = i / 12 * TAU + state.time * .08;
-      const r = radius * (.2 + (i % 4) * .14);
+      const angle = i / 12 * TAU + state.time * .08;
+      const radiusOffset = radius * (.2 + (i % 4) * .14);
       ctx.fillStyle = i % 3 ? '#70e5d6' : '#e3fff5';
       ctx.globalAlpha = .48 + (i % 3) * .14;
       ctx.beginPath();
-      ctx.ellipse(Math.cos(a) * r, Math.sin(a) * r, 5, 2.2, a, 0, TAU);
+      ctx.ellipse(Math.cos(angle) * radiusOffset, Math.sin(angle) * radiusOffset, 5, 2.2, angle, 0, TAU);
       ctx.fill();
     }
     ctx.restore();
     ctx.globalAlpha = 1;
-  }
-
-  function drawAttack(ctx, record) {
-    const { hunter, target, progress, phase } = record;
-    const dx = target.x - hunter.x;
-    const dy = target.y - hunter.y;
-    const d = Math.max(1, Math.hypot(dx, dy));
-    const nx = -dy / d;
-    const ny = dx / d;
-    ctx.strokeStyle = `rgba(141,240,168,${clamp(.25 + progress * .35, .25, .9)})`;
-    ctx.lineWidth = 2.2;
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = '#8df0a8';
-    ctx.beginPath();
-    ctx.moveTo(hunter.x, hunter.y);
-    ctx.bezierCurveTo(hunter.x + dx * .35 + nx * 18, hunter.y + dy * .35 + ny * 18, hunter.x + dx * .7 - nx * 16, hunter.y + dy * .7 - ny * 16, target.x, target.y);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    const coils = 3 + Math.floor(progress * 4);
-    for (let i = 0; i < coils; i++) {
-      const a = state.time * 4.2 + phase + i / coils * TAU;
-      const r = 12 + i * 2;
-      ctx.strokeStyle = `rgba(141,240,168,${.35 + progress * .25})`;
-      ctx.beginPath();
-      ctx.arc(target.x + Math.cos(a) * 3, target.y + Math.sin(a) * 2, r, a, a + Math.PI * 1.35);
-      ctx.stroke();
-    }
   }
 
   function drawInfection(ctx) {
@@ -378,8 +327,8 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
     const py = state.player.y + state.player.h / 2;
     const count = 2 + Math.floor(infection * 6);
     for (let i = 0; i < count; i++) {
-      const a = i / count * TAU + state.time * (.55 + i * .04);
-      const r = 22 + (i % 3) * 6;
+      const angle = i / count * TAU + state.time * (.55 + i * .04);
+      const radius = 22 + (i % 3) * 6;
       ctx.fillStyle = '#ff8297';
       ctx.shadowBlur = 12;
       ctx.shadowColor = '#ff6f91';
@@ -388,8 +337,8 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
       for (let k = 0; k < 10; k++) {
         const aa = k / 10 * TAU;
         const rr = k % 2 ? 3.5 : 5.5;
-        const x = px + Math.cos(a) * r + Math.cos(aa) * rr;
-        const y = py + Math.sin(a) * r * .65 + Math.sin(aa) * rr;
+        const x = px + Math.cos(angle) * radius + Math.cos(aa) * rr;
+        const y = py + Math.sin(angle) * radius * .65 + Math.sin(aa) * rr;
         k ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
       }
       ctx.closePath();
@@ -422,7 +371,6 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
       ctx.setLineDash([]);
     }
     for (const film of biofilms) drawBiofilm(ctx, film);
-    for (const record of attacks.values()) drawAttack(ctx, record);
     drawInfection(ctx);
     ctx.restore();
   }
@@ -430,7 +378,10 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
   return {
     get cloudCount() { return clouds.length; },
     get biofilmCount() { return biofilms.length; },
-    get attackCount() { return attacks.size; },
-    clear, reset, prepare, update, render,
+    clear,
+    reset,
+    prepare,
+    update,
+    render,
   };
 }
