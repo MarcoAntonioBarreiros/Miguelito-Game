@@ -10,6 +10,7 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
     const player = state.player;
     const level = state.level;
     const keys = input.keys;
+    const moveMultiplier = clamp(player.moveMultiplier ?? 1, .58, 1);
 
     player.invuln = Math.max(0, player.invuln - dt);
     player.dashCooldown = Math.max(0, player.dashCooldown - dt);
@@ -29,12 +30,12 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
 
     if (player.dashTime > 0) {
       player.dashTime -= dt;
-      player.vx = player.facing * 660;
+      player.vx = player.facing * 660 * (.82 + moveMultiplier * .18);
       player.vy = 0;
     } else {
       const target = (right ? 1 : 0) - (left ? 1 : 0);
       if (target) player.facing = target;
-      player.vx = lerp(player.vx, target * 245, 1 - Math.pow(.0008, dt));
+      player.vx = lerp(player.vx, target * 245 * moveMultiplier, 1 - Math.pow(.0008, dt));
       if (!target) player.vx *= Math.pow(.00002, dt);
       player.vy += 1180 * dt;
       player.vy = Math.min(player.vy, 720);
@@ -103,7 +104,6 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
         }
       }
     }
-    // Unbroken crystals act as solid walls — must use Pulse K to break through
     for (const c of level.crystals) {
       if (!c.broken && rects(player, c)) {
         if (player.vx > 0) {
@@ -210,7 +210,7 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
       hud.setMission('Fase concluída');
     }
     if (player.x > 3600 && player.canPulse && level.endX === undefined) hud.setMission('Leve a energia mineral até a raiz principal');
-    
+
     const maxCameraX = level.cameraMaxX !== undefined ? level.cameraMaxX : (4900 - W);
     state.cameraX = lerp(state.cameraX, clamp(player.x - 360, 0, maxCameraX), 1 - Math.pow(.0001, dt));
     state.shake = Math.max(0, state.shake - dt);
