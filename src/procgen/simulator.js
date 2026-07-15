@@ -8,6 +8,7 @@ import { createTrichodermaGrowth } from './trichoderma-growth.js';
 import { createTrichodermaRecruitment } from './trichoderma-recruitment.js';
 import { createTrichodermaColonies } from './trichoderma-colonies.js';
 import { createBeneficialInoculants } from './beneficial-inoculants.js';
+import { createPseudomonasSiderophores } from './pseudomonas-siderophores.js';
 import { createRhizobiumNodulation } from './rhizobium-nodulation.js';
 import { createAzospirillumRootGrowth } from './azospirillum-root-growth.js';
 import { createAzospirillumRootSafety } from './azospirillum-root-safety.js';
@@ -23,7 +24,7 @@ export function createSimulator() {
       platforms: [], hazards: [], crystals: [], enemies: [], exudates: [],
       allies: [], checkpoints: [], particles: [], pulses: [], goal: null,
       exudateClouds: [], biofilms: [], beneficialColonies: [], rhizobiumNodules: [],
-      azospirillumRoots: [],
+      azospirillumRoots: [], ironDeposits: [], siderophores: [],
     },
     jumpHeldLast: false,
     discoveredMicrobes: new Set(),
@@ -91,6 +92,12 @@ export function createSimulator() {
   const goal = createGoalSystem({ state, entities });
   const gameplay = createEcologicalGameplay({ state, input, entities, ecology });
   const beneficialInoculants = createBeneficialInoculants({ state, input, ecology, entities });
+  const pseudomonasSiderophores = createPseudomonasSiderophores({
+    state,
+    entities,
+    ecology,
+    inoculants: beneficialInoculants,
+  });
   const rhizobiumNodulation = createRhizobiumNodulation({ state, entities, inoculants: beneficialInoculants });
   const azospirillumRootGrowth = createAzospirillumRootGrowth({ state, entities, inoculants: beneficialInoculants });
   const azospirillumRootSafety = createAzospirillumRootSafety({ state, rootGrowth: azospirillumRootGrowth });
@@ -101,6 +108,7 @@ export function createSimulator() {
   state.trichodermaRecruitment = recruitment;
   state.trichodermaColonies = trichodermaColonies;
   state.beneficialInoculants = beneficialInoculants;
+  state.pseudomonasSiderophores = pseudomonasSiderophores;
   state.rhizobiumNodulation = rhizobiumNodulation;
   state.azospirillumRootGrowth = azospirillumRootGrowth;
   state.azospirillumRootSafety = azospirillumRootSafety;
@@ -118,6 +126,7 @@ export function createSimulator() {
     trichoderma.clear();
     trichodermaColonies.clear();
     azospirillumRootGrowth.clear();
+    pseudomonasSiderophores.clear();
     beneficialInoculants.clear();
     rhizobiumNodulation.clear();
     mycorrhizaStructures.clear();
@@ -144,6 +153,7 @@ export function createSimulator() {
     gameplay.reset();
     azospirillumRootGrowth.reset();
     beneficialInoculants.reset();
+    pseudomonasSiderophores.reset();
     rhizobiumNodulation.reset();
   }
 
@@ -160,6 +170,7 @@ export function createSimulator() {
     ecology.update(dt);
     recruitment.update(dt);
     beneficialInoculants.update(dt);
+    pseudomonasSiderophores.update(dt);
     azospirillumRootGrowth.update(dt);
     azospirillumRootSafety.update(dt);
     rhizobiumNodulation.update(dt);
@@ -175,8 +186,8 @@ export function createSimulator() {
   return {
     state, input, entities, ecology, mycorrhiza, mycorrhizaStructures,
     trichoderma, recruitment, trichodermaColonies, beneficialInoculants,
-    rhizobiumNodulation, azospirillumRootGrowth, azospirillumRootSafety,
-    goal, gameplay,
+    pseudomonasSiderophores, rhizobiumNodulation, azospirillumRootGrowth,
+    azospirillumRootSafety, goal, gameplay,
     reset, resetEcology, resetBiology, setInputs, step,
   };
 }
