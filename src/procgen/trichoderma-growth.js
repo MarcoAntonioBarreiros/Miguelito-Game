@@ -28,27 +28,54 @@ function byId(agents, id) {
 
 export function createTrichodermaGrowth({ state, entities, ecology }) {
   const networks = new Map();
-  const detectionRadius = 390;
+  const detectionRadius = 430;
   const maxActiveNetworks = 6;
 
-  function clear() { networks.clear(); }
+  function releaseHunter(network, continuation = 0) {
+    const hunter = byId(ecology.agents, network?.metadata?.hunterId);
+    if (!hunter) return;
+    hunter.hyphalAttack = null;
+    if ((hunter.recruitedUntil || 0) > state.time || continuation > 0) {
+      hunter.recruitedUntil = Math.max(hunter.recruitedUntil || 0, state.time + continuation);
+    }
+  }
+
+  function clear() {
+    for (const network of networks.values()) releaseHunter(network);
+    networks.clear();
+    for (const agent of ecology.agents) {
+      if (agent.type === 'trichoderma') agent.hyphalAttack = null;
+    }
+  }
+
   function reset() { clear(); }
+
+  function activeNetworkCount() {
+    let count = 0;
+    for (const network of networks.values()) {
+      if (network.active && !network.metadata.completed && !network.metadata.aborted) count++;
+    }
+    return count;
+  }
 
   function findNearestHunter(target) {
     let best = null;
     let bestDistance = detectionRadius;
     for (const agent of ecology.agents) {
-      if (agent.type !== 'trichoderma') continue;
+      if (agent.type !== 'trichoderma' || agent.hyphalAttack) continue;
       const distance = Math.hypot(agent.x - target.x, agent.y - target.y);
-      if (distance < bestDistance) {
+      const recruitedBonus = (agent.recruitedUntil || 0) > state.time ? .78 : 1;
+      const score = distance * recruitedBonus;
+      if (score < bestDistance) {
         best = agent;
-        bestDistance = distance;
+        bestDistance = score;
       }
     }
     return best ? { hunter: best, distance: bestDistance } : null;
   }
 
   function createAttack(target, hunter) {
+    if (!hunter || hunter.hyphalAttack || networks.has(target.id)) return false;
     const angle = Math.atan2(target.y - hunter.y, target.x - hunter.x);
     const network = createHyphalNetwork({
       kind: 'trichoderma',
@@ -64,13 +91,28 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
         lysis: 0,
         phase: Math.random() * TAU,
         completed: false,
+        aborted: false,
+        stalled: 0,
       },
     });
     network.germination = 1;
     networks.set(target.id, network);
     hunter.hyphalAttack = target.id;
+    if ((hunter.recruitedUntil || 0) > state.time) {
+      hunter.recruitedUntil = Math.max(hunter.recruitedUntil, state.time + 12);
+    }
     state.discoveredMicrobes.add('trichoderma');
     entities.burst(hunter.x, hunter.y, '#8df0a8', 18, 115);
+    return true;
+  }
+
+  function abortAttack(network, target, retryDelay = 1.2) {
+    if (!network || network.metadata.aborted || network.metadata.completed) return;
+    network.metadata.aborted = true;
+    network.active = false;
+    network.fading = .9;
+    releaseHunter(network, 8);
+    if (target) target.trichoRetryAt = state.time + retryDelay;
   }
 
   function completeAttack(network, target) {
@@ -80,8 +122,7 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     network.fading = .01;
     const index = ecology.agents.indexOf(target);
     if (index >= 0) ecology.agents.splice(index, 1);
-    const hunter = byId(ecology.agents, network.metadata.hunterId);
-    if (hunter) hunter.hyphalAttack = null;
+    releaseHunter(network, 18);
     state.player.soil += 1.8;
     state.player.hope += 2.6;
     if (Math.hypot(target.x - (state.player.x + 16), target.y - (state.player.y + 24)) < 260) {
@@ -89,7 +130,7 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     }
     entities.burst(target.x, target.y, '#8df0a8', 42, 230);
     entities.burst(target.x, target.y, '#ff8297', 24, 175);
-    state.toast = 'Micoparasitismo: Trichoderma envolveu o fungo-alvo e promoveu lise localizada';
+    state.toast = 'Micoparasitismo: Trichoderma envolveu o fungo-alvo e está disponível para um novo ataque';
     state.toastTime = 4.8;
   }
 
@@ -97,23 +138,24 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     const target = byId(ecology.agents, network.metadata.targetId);
     const hunter = byId(ecology.agents, network.metadata.hunterId);
     if (!target) {
-      network.active = false;
-      network.fading = Math.max(network.fading, .01);
+      abortAttack(network, null, 0);
+      return;
+    }
+    if (!hunter) {
+      abortAttack(network, target, 1.5);
       return;
     }
 
     const cameraCenter = state.cameraX + W / 2;
     if (Math.abs(target.x - cameraCenter) > W * 1.25 && network.metadata.contact < .08) return;
 
-    if (hunter) {
-      const dx = target.x - hunter.x;
-      const dy = target.y - hunter.y;
-      const distance = Math.max(1, Math.hypot(dx, dy));
-      hunter.vx += dx / distance * 46 * dt;
-      hunter.vy += dy / distance * 46 * dt;
-      hunter.homeX += dx / distance * 30 * dt;
-      hunter.homeY += dy / distance * 24 * dt;
-    }
+    const dx = target.x - hunter.x;
+    const dy = target.y - hunter.y;
+    const hunterDistance = Math.max(1, Math.hypot(dx, dy));
+    hunter.vx += dx / hunterDistance * 46 * dt;
+    hunter.vy += dy / hunterDistance * 46 * dt;
+    hunter.homeX += dx / hunterDistance * 30 * dt;
+    hunter.homeY += dy / hunterDistance * 24 * dt;
 
     updateHyphalNetwork(network, dt, {
       time: state.time,
@@ -138,6 +180,7 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
       avoidanceProvider: tip => avoidHazards(state, tip),
       onFirstContact: (currentNetwork, tip, contactTarget) => {
         currentNetwork.metadata.contact = Math.max(currentNetwork.metadata.contact, .08);
+        currentNetwork.metadata.stalled = 0;
         entities.burst(contactTarget.x, contactTarget.y, '#baf66f', 12, 90);
       },
       onContact: (currentNetwork, tip, contactTarget, frameDt) => {
@@ -146,6 +189,7 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
         currentTarget.vx *= Math.pow(.09, frameDt);
         currentTarget.vy *= Math.pow(.09, frameDt);
         currentNetwork.metadata.contact = clamp(currentNetwork.metadata.contact + frameDt * (.28 + tip.coilTurns * .08), 0, 1);
+        currentNetwork.metadata.stalled = 0;
         if (currentNetwork.metadata.contact > .18) {
           const coilContribution = clamp(tip.coilTurns / 2.8, 0, 1);
           currentNetwork.metadata.lysis = clamp(currentNetwork.metadata.lysis + frameDt * (.15 + coilContribution * .24), 0, 1);
@@ -174,6 +218,14 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
       },
     });
 
+    const activeTips = network.tips.filter(tip => tip.active).length;
+    if (activeTips === 0 && network.metadata.lysis < 1) {
+      network.metadata.stalled += dt;
+      if (network.metadata.stalled > .7) abortAttack(network, target, 1.4);
+    } else if (network.metadata.contact <= .08) {
+      network.metadata.stalled = Math.max(0, network.metadata.stalled - dt * .5);
+    }
+
     if (network.metadata.lysis >= 1) completeAttack(network, target);
   }
 
@@ -181,21 +233,28 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     if (state.gameState !== 'play') return;
     const cameraCenter = state.cameraX + W / 2;
     const opportunists = ecology.agents.filter(agent => agent.type === 'oportunista');
+    let activeCount = activeNetworkCount();
+
     for (const target of opportunists) {
-      if (networks.size >= maxActiveNetworks) break;
-      if (networks.has(target.id)) continue;
+      if (activeCount >= maxActiveNetworks) break;
+      if (networks.has(target.id) || (target.trichoRetryAt || 0) > state.time) continue;
       if (Math.abs(target.x - cameraCenter) > W * .9) continue;
       const found = findNearestHunter(target);
-      if (found) createAttack(target, found.hunter);
+      if (found && createAttack(target, found.hunter)) activeCount++;
     }
 
-    for (const [id, network] of networks) {
+    for (const [id, network] of [...networks]) {
+      if (network.metadata.aborted) {
+        networks.delete(id);
+        continue;
+      }
       if (network.metadata.completed || !network.active) {
         network.fading += dt * .34;
         if (network.fading >= 1) networks.delete(id);
         continue;
       }
       updateAttack(network, dt);
+      if (network.metadata.aborted) networks.delete(id);
     }
   }
 
@@ -237,10 +296,13 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
   }
 
   return {
-    get attackCount() { return networks.size; },
+    get attackCount() { return activeNetworkCount(); },
     get tipCount() {
       return [...networks.values()].reduce((sum, network) => sum + network.tips.filter(tip => tip.active).length, 0);
     },
-    clear, reset, update, render,
+    clear,
+    reset,
+    update,
+    render,
   };
 }
