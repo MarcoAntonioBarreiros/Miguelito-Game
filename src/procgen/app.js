@@ -170,11 +170,12 @@ function loop(now) {
     if (showDebug) {
       const logicIndex = currentLogicIndex();
       const info = levelData.debugInfo[logicIndex];
+      const vigor = Math.round(sim.trichoderma.vigorAverage * 100);
       debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
         + (info ? ` | ${info.primitive} | ${info.logic.difficultyTarget} | vão ${info.gap}px` : '')
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
         + `\nMicorriza AM: ${sim.mycorrhiza.tipCount} pontas / ${sim.mycorrhiza.branchCount} ramos / ${sim.mycorrhiza.arbusculeCount} arbúsculos`
-        + `\nTrichoderma: ${sim.trichoderma.tipCount} pontas / ${sim.trichoderma.attackCount} alvos`
+        + `\nTrichoderma: ${sim.trichoderma.tipCount} pontas / ${sim.trichoderma.attackCount} alvos / vigor ${vigor}% (${sim.trichoderma.searchCount} em busca)`
         + `\nInterações: ${sim.gameplay.cloudCount} nuvens / ${sim.gameplay.biofilmCount} biofilmes`;
     }
 
