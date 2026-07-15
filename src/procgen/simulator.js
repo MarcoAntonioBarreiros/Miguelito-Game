@@ -1,6 +1,7 @@
 import { createPhysicsSystem } from '../physics.js';
 import { createPlayer, resetPlayer } from '../player.js';
 import { createMicrobeArt } from '../data/microbes.js';
+import { createMicrobeEcology } from './microbe-ecology.js';
 
 export function createSimulator() {
   const state = {
@@ -46,10 +47,10 @@ export function createSimulator() {
         });
       }
     },
-    discoverMicrobe: (id) => { 
-      state.discoveredMicrobes.add(id); 
+    discoverMicrobe: (id) => {
+      state.discoveredMicrobes.add(id);
     },
-    respawn: () => { 
+    respawn: () => {
       state.player.x = state.currentCheckpoint ? state.currentCheckpoint.x : 100;
       state.player.y = state.currentCheckpoint ? state.currentCheckpoint.y : 400;
       state.player.vx = 0;
@@ -60,9 +61,9 @@ export function createSimulator() {
 
   const hud = {
     setMission: (m) => { state.mission = m; },
-    showToast: (title, desc) => { 
+    showToast: (title, desc) => {
       state.toast = `${title}: ${desc}`;
-      state.toastTime = 4.7; // seconds
+      state.toastTime = 4.7;
     },
     updateHud: () => {},
     showEnd: () => {}
@@ -72,6 +73,8 @@ export function createSimulator() {
     toneNow: () => {}
   };
 
+  const ecology = createMicrobeEcology({ state, entities });
+  state.microbeEcology = ecology;
   const physics = createPhysicsSystem({ state, input, entities, hud, audio });
 
   function reset() {
@@ -80,23 +83,26 @@ export function createSimulator() {
     state.time = 0;
     state.level.platforms = [];
     state.level.hazards = [];
-    // Reset all inputs
-    for (let k in input.keys) input.keys[k] = false;
+    ecology.clear();
+    for (const k in input.keys) input.keys[k] = false;
+  }
+
+  function resetEcology(encounters) {
+    ecology.reset(encounters);
   }
 
   function setInputs(newKeys) {
-    for (let k in input.keys) input.keys[k] = false;
-    for (let k in newKeys) {
+    for (const k in input.keys) input.keys[k] = false;
+    for (const k in newKeys) {
       if (newKeys[k]) input.keys[k] = true;
     }
   }
 
   function step(dt) {
     physics.update(dt);
-    if (state.toastTime > 0) {
-      state.toastTime -= dt;
-    }
+    ecology.update(dt);
+    if (state.toastTime > 0) state.toastTime -= dt;
   }
 
-  return { state, input, entities, reset, setInputs, step };
+  return { state, input, entities, ecology, reset, resetEcology, setInputs, step };
 }

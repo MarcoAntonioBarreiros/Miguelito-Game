@@ -21,7 +21,7 @@ function populateMicrobeEncounters(platforms) {
   const decorativeTypes = ['rhizobium', 'oportunista', 'trichoderma', 'pseudomonas', 'azospirillum', 'bacillus'];
   let nextSpawnX = 600;
   const spacing = 800;
-  
+
   for (let i = 3; i < platforms.length; i++) {
     const plat = platforms[i];
     if (plat.x < nextSpawnX) continue;
@@ -45,13 +45,16 @@ function initGame() {
   sim.state.gameState = 'play';
   sim.state.mission = 'Encontre Azospirillum e desbloqueie o Impulso Radicular (salto duplo)';
   populateMicrobeEncounters(levelData.platforms);
+  sim.resetEcology(microbeEncounters);
+  // O renderizador antigo usa a mesma lista para cenas estáticas. A ecologia
+  // mantém uma cópia própria e limpa a lista para evitar organismos duplicados.
+  microbeEncounters.length = 0;
   renderer = createRenderer({ canvas, state: sim.state, entities: sim.entities });
   toastDiv.className = '';
 }
 
 initGame();
 
-// Inputs
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.code] = true;
@@ -81,13 +84,10 @@ function loop(now) {
     sim.setInputs(keys);
     sim.step(dt);
     renderer.render();
+    sim.ecology.render(ctx);
 
-    // Update mission text (top-left, subtle)
-    if (sim.state.mission) {
-      missionDiv.textContent = '🌱 ' + sim.state.mission;
-    }
+    if (sim.state.mission) missionDiv.textContent = '🌱 ' + sim.state.mission;
 
-    // Update toast (top-center, animated)
     if (sim.state.toastTime > 0 && sim.state.toast && sim.state.toast !== lastToast) {
       toastDiv.textContent = sim.state.toast;
       toastDiv.className = 'show';
@@ -98,7 +98,6 @@ function loop(now) {
       lastToast = '';
     }
 
-    // Update HUD bar (top-right, stats)
     const p = sim.state.player;
     const abilities = [
       p.canDoubleJump ? '⬆⬆ Salto' : null,
@@ -107,7 +106,6 @@ function loop(now) {
     ].filter(Boolean).join(' | ');
     hudBar.textContent = `Solo: ${p.soil.toFixed(0)} | Esperança: ${p.hope.toFixed(0)} | Exudatos: ${p.exudates}${abilities ? ' | ' + abilities : ''}`;
 
-    // Debug panel (bottom-right, small — toggle with Tab)
     if (showDebug) {
       let currentChunk = 0;
       for (let i = 0; i < levelData.platforms.length; i++) {
@@ -115,12 +113,13 @@ function loop(now) {
       }
       const ci = levelData.debugInfo[currentChunk - 1];
       debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${currentChunk}/${levelData.platforms.length - 1}` +
-        (ci ? ` | ${ci.primitive} | ${ci.logic.difficultyTarget}` : '');
+        (ci ? ` | ${ci.primitive} | ${ci.logic.difficultyTarget}` : '') +
+        `\nEcologia móvel: ${sim.ecology.agents.length} organismos`;
     }
 
     requestAnimationFrame(loop);
   } catch (err) {
-    debugDiv.textContent = "ERRO: " + err.message + "\n" + err.stack;
+    debugDiv.textContent = 'ERRO: ' + err.message + '\n' + err.stack;
   }
 }
 
