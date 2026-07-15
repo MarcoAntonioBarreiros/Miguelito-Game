@@ -8,6 +8,7 @@ import { createTrichodermaGrowth } from './trichoderma-growth.js';
 import { createTrichodermaRecruitment } from './trichoderma-recruitment.js';
 import { createTrichodermaColonies } from './trichoderma-colonies.js';
 import { createBeneficialInoculants } from './beneficial-inoculants.js';
+import { createRhizobiumNodulation } from './rhizobium-nodulation.js';
 import { createGoalSystem } from './goal-system.js';
 import { createEcologicalGameplay } from './ecological-gameplay.js';
 
@@ -19,7 +20,7 @@ export function createSimulator() {
     level: {
       platforms: [], hazards: [], crystals: [], enemies: [], exudates: [],
       allies: [], checkpoints: [], particles: [], pulses: [], goal: null,
-      exudateClouds: [], biofilms: [], beneficialColonies: [],
+      exudateClouds: [], biofilms: [], beneficialColonies: [], rhizobiumNodules: [],
     },
     jumpHeldLast: false,
     discoveredMicrobes: new Set(),
@@ -87,6 +88,7 @@ export function createSimulator() {
   const goal = createGoalSystem({ state, entities });
   const gameplay = createEcologicalGameplay({ state, input, entities, ecology });
   const beneficialInoculants = createBeneficialInoculants({ state, input, ecology, entities });
+  const rhizobiumNodulation = createRhizobiumNodulation({ state, entities, inoculants: beneficialInoculants });
   state.microbeEcology = ecology;
   state.mycorrhizaGrowth = mycorrhiza;
   state.mycorrhizaStructures = mycorrhizaStructures;
@@ -94,6 +96,7 @@ export function createSimulator() {
   state.trichodermaRecruitment = recruitment;
   state.trichodermaColonies = trichodermaColonies;
   state.beneficialInoculants = beneficialInoculants;
+  state.rhizobiumNodulation = rhizobiumNodulation;
   state.goalSystem = goal;
   state.ecologicalGameplay = gameplay;
 
@@ -108,6 +111,7 @@ export function createSimulator() {
     trichoderma.clear();
     trichodermaColonies.clear();
     beneficialInoculants.clear();
+    rhizobiumNodulation.clear();
     mycorrhizaStructures.clear();
     ecology.clear();
     mycorrhiza.clear();
@@ -131,6 +135,7 @@ export function createSimulator() {
     goal.reset();
     gameplay.reset();
     beneficialInoculants.reset();
+    rhizobiumNodulation.reset();
   }
 
   function setInputs(newKeys) {
@@ -146,6 +151,7 @@ export function createSimulator() {
     ecology.update(dt);
     recruitment.update(dt);
     beneficialInoculants.update(dt);
+    rhizobiumNodulation.update(dt);
     trichodermaColonies.update(dt);
     gameplay.update(dt);
     trichoderma.update(dt);
@@ -158,7 +164,7 @@ export function createSimulator() {
   return {
     state, input, entities, ecology, mycorrhiza, mycorrhizaStructures,
     trichoderma, recruitment, trichodermaColonies, beneficialInoculants,
-    goal, gameplay,
+    rhizobiumNodulation, goal, gameplay,
     reset, resetEcology, resetBiology, setInputs, step,
   };
 }
