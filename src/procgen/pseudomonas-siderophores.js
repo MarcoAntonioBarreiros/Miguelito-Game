@@ -458,6 +458,7 @@ export function createPseudomonasSiderophores({ state, entities, ecology, inocul
   function drawLimitedFungus(ctx, agent) {
     const pressure = clamp(agent.ironLimitation || 0, 0, 1);
     if (pressure <= .04) return;
+    const noiseSeed = agent.noiseSeed || 0;
     ctx.save();
     ctx.translate(agent.x, agent.y);
     ctx.globalAlpha = .25 + pressure * .55;
@@ -465,11 +466,11 @@ export function createPseudomonasSiderophores({ state, entities, ecology, inocul
     ctx.lineWidth = 1;
     ctx.setLineDash([2, 4]);
     ctx.beginPath();
-    ctx.arc(0, 0, 15 + pressure * 9 + Math.sin(state.time * 3 + agent.noiseSeed) * 2, 0, TAU);
+    ctx.arc(0, 0, 15 + pressure * 9 + Math.sin(state.time * 3 + noiseSeed) * 2, 0, TAU);
     ctx.stroke();
     ctx.setLineDash([]);
     for (let i = 0; i < 3; i++) {
-      const angle = state.time * .55 + i * TAU / 3 + agent.noiseSeed;
+      const angle = state.time * .55 + i * TAU / 3 + noiseSeed;
       ctx.fillStyle = '#d5ff6d';
       ctx.beginPath();
       ctx.arc(Math.cos(angle) * 12, Math.sin(angle) * 8, 1.6, 0, TAU);
