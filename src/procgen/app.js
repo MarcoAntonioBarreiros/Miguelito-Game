@@ -91,7 +91,7 @@ function initGame() {
   sim.state.player.x = 100;
   sim.state.player.y = 400;
   sim.state.gameState = 'play';
-  sim.state.mission = 'Encontre Azospirillum e desbloqueie o Impulso Radicular (salto duplo)';
+  sim.state.mission = 'Colete exsudatos e use E para dirigir as comunidades microbianas';
   populateMicrobeEncounters(levelData.platforms, seed);
   sim.resetEcology(microbeEncounters);
   sim.resetBiology();
@@ -116,9 +116,7 @@ window.addEventListener('keydown', e => {
     debugDiv.classList.toggle('hidden', !showDebug);
   }
 });
-window.addEventListener('keyup', e => {
-  keys[e.code] = false;
-});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
 
 let lastTime = performance.now();
 let lastToast = '';
@@ -144,6 +142,7 @@ function loop(now) {
     sim.ecology.render(ctx);
     sim.mycorrhiza.render(ctx);
     sim.goal.render(ctx);
+    sim.gameplay.render(ctx);
 
     if (sim.state.mission) missionDiv.textContent = '🌱 ' + sim.state.mission;
 
@@ -159,11 +158,13 @@ function loop(now) {
 
     const p = sim.state.player;
     const abilities = [
+      p.exudates > 0 ? '🟢 E Exsudato' : null,
       p.canDoubleJump ? '⬆⬆ Salto' : null,
       p.canDash ? '💨 Dash' : null,
       p.canPulse ? '💥 Pulso' : null,
     ].filter(Boolean).join(' | ');
-    hudBar.textContent = `Solo: ${p.soil.toFixed(0)} | Esperança: ${p.hope.toFixed(0)} | Exudatos: ${p.exudates}${abilities ? ' | ' + abilities : ''}`;
+    const infection = p.infection > .01 ? ` | Infecção: ${(p.infection * 100).toFixed(0)}%` : '';
+    hudBar.textContent = `Solo: ${p.soil.toFixed(0)} | Esperança: ${p.hope.toFixed(0)} | Exudatos: ${p.exudates}${infection}${abilities ? ' | ' + abilities : ''}`;
 
     if (showDebug) {
       const logicIndex = currentLogicIndex();
@@ -171,7 +172,8 @@ function loop(now) {
       debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
         + (ci ? ` | ${ci.primitive} | ${ci.logic.difficultyTarget} | vão ${ci.gap}px` : '')
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
-        + `\nMicorriza: ${sim.mycorrhiza.tipCount} pontas / ${sim.mycorrhiza.branchCount} ramos`;
+        + `\nMicorriza: ${sim.mycorrhiza.tipCount} pontas / ${sim.mycorrhiza.branchCount} ramos`
+        + `\nInterações: ${sim.gameplay.cloudCount} nuvens / ${sim.gameplay.biofilmCount} biofilmes / ${sim.gameplay.attackCount} micoparasitismos`;
     }
 
     requestAnimationFrame(loop);
