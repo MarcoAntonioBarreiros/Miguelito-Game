@@ -146,7 +146,6 @@ function loop(now) {
     sim.pseudomonasSiderophores.renderDeposits(ctx);
     sim.ecology.render(ctx);
     sim.beneficialInoculants.render(ctx);
-    sim.bacillusBioprotection.render(ctx);
     sim.pseudomonasSiderophores.render(ctx);
     sim.azospirillumRootGrowth.render(ctx);
     sim.rhizobiumNodulation.render(ctx);
@@ -156,6 +155,7 @@ function loop(now) {
     sim.mycorrhiza.render(ctx);
     sim.goal.render(ctx);
     sim.gameplay.render(ctx);
+    sim.bacillusBioprotection.render(ctx);
     platformVisuals.renderLabel(ctx);
 
     if (sim.state.mission) missionDiv.textContent = '🌱 ' + sim.state.mission;
