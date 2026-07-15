@@ -162,7 +162,7 @@ export function createPlatformVisuals({ state }) {
     ctx.save();
     ctx.translate(-state.cameraX, 0);
     for (const platform of state.level.platforms || []) {
-      if (platform.mycorrhizaStructure) continue;
+      if (platform.mycorrhizaStructure || platform.azospirillumStructure) continue;
       if (platform.x + platform.w < state.cameraX - 80 || platform.x > state.cameraX + W + 80) continue;
       if (platform.type === 'root') drawRoot(ctx, platform);
       else drawSoil(ctx, platform);
@@ -195,6 +195,7 @@ export function createPlatformVisuals({ state }) {
   }
 
   function labelFor(platform) {
+    if (platform.azospirillumStructure) return { text: 'Raiz lateral', color: '#8ff4e8' };
     if (platform.recovery) return { text: 'Raiz de recuperação', color: '#d6afff' };
     if (platform.final) return { text: 'Raiz principal', color: '#ffe0a2' };
     if (platform.type === 'root') return { text: 'Raiz hospedeira', color: '#ffe0a2' };
