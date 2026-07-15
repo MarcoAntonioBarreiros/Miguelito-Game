@@ -1,4 +1,4 @@
-import { H } from '../core/constants.js';
+import { H, W } from '../core/constants.js';
 import { clamp, createHyphalNetwork, renderHyphalNetwork, TAU, updateHyphalNetwork } from './hyphal-growth.js';
 
 function nearestPointOnRect(x, y, rect) {
@@ -29,6 +29,7 @@ function byId(agents, id) {
 export function createTrichodermaGrowth({ state, entities, ecology }) {
   const networks = new Map();
   const detectionRadius = 390;
+  const maxActiveNetworks = 6;
 
   function clear() { networks.clear(); }
   function reset() { clear(); }
@@ -101,6 +102,9 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
       return;
     }
 
+    const cameraCenter = state.cameraX + W / 2;
+    if (Math.abs(target.x - cameraCenter) > W * 1.25 && network.metadata.contact < .08) return;
+
     if (hunter) {
       const dx = target.x - hunter.x;
       const dy = target.y - hunter.y;
@@ -127,7 +131,7 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
           kind: 'fungal-target',
           range: 720,
           strength: 1.28,
-          contactRadius: 28,
+          contactRadius: 48,
           orbitRadius: 48,
         };
       },
@@ -175,9 +179,12 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
 
   function update(dt) {
     if (state.gameState !== 'play') return;
+    const cameraCenter = state.cameraX + W / 2;
     const opportunists = ecology.agents.filter(agent => agent.type === 'oportunista');
     for (const target of opportunists) {
+      if (networks.size >= maxActiveNetworks) break;
       if (networks.has(target.id)) continue;
+      if (Math.abs(target.x - cameraCenter) > W * .9) continue;
       const found = findNearestHunter(target);
       if (found) createAttack(target, found.hunter);
     }
