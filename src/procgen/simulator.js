@@ -3,6 +3,7 @@ import { createPlayer, resetPlayer } from '../player.js';
 import { createMicrobeArt } from '../data/microbes.js';
 import { createRoamingMicrobeEcology } from './microbe-roaming.js';
 import { createMycorrhizaGrowth } from './mycorrhiza-growth.js';
+import { createMycorrhizaStructures } from './mycorrhiza-structures.js';
 import { createTrichodermaGrowth } from './trichoderma-growth.js';
 import { createTrichodermaRecruitment } from './trichoderma-recruitment.js';
 import { createTrichodermaColonies } from './trichoderma-colonies.js';
@@ -78,6 +79,7 @@ export function createSimulator() {
 
   const ecology = createRoamingMicrobeEcology({ state, entities });
   const mycorrhiza = createMycorrhizaGrowth({ state, entities });
+  const mycorrhizaStructures = createMycorrhizaStructures({ state, entities });
   const recruitment = createTrichodermaRecruitment({ state, ecology, entities });
   const trichodermaColonies = createTrichodermaColonies({ state, input, ecology, entities });
   const trichoderma = createTrichodermaGrowth({ state, entities, ecology, colonies: trichodermaColonies });
@@ -85,6 +87,7 @@ export function createSimulator() {
   const gameplay = createEcologicalGameplay({ state, input, entities, ecology });
   state.microbeEcology = ecology;
   state.mycorrhizaGrowth = mycorrhiza;
+  state.mycorrhizaStructures = mycorrhizaStructures;
   state.trichodermaGrowth = trichoderma;
   state.trichodermaRecruitment = recruitment;
   state.trichodermaColonies = trichodermaColonies;
@@ -98,15 +101,16 @@ export function createSimulator() {
     state.player.alive = true;
     state.time = 0;
     state.currentCheckpoint = null;
-    state.level.platforms = [];
-    state.level.hazards = [];
     recruitment.clear();
     trichoderma.clear();
     trichodermaColonies.clear();
+    mycorrhizaStructures.clear();
     ecology.clear();
     mycorrhiza.clear();
     goal.clear();
     gameplay.clear();
+    state.level.platforms = [];
+    state.level.hazards = [];
     for (const key in input.keys) input.keys[key] = false;
   }
 
@@ -116,6 +120,7 @@ export function createSimulator() {
 
   function resetBiology() {
     mycorrhiza.reset();
+    mycorrhizaStructures.reset();
     trichoderma.reset();
     recruitment.reset();
     trichodermaColonies.reset();
@@ -138,13 +143,14 @@ export function createSimulator() {
     gameplay.update(dt);
     trichoderma.update(dt);
     mycorrhiza.update(dt);
+    mycorrhizaStructures.update(dt);
     goal.update(dt);
     if (state.toastTime > 0) state.toastTime -= dt;
   }
 
   return {
-    state, input, entities, ecology, mycorrhiza, trichoderma, recruitment,
-    trichodermaColonies, goal, gameplay,
+    state, input, entities, ecology, mycorrhiza, mycorrhizaStructures,
+    trichoderma, recruitment, trichodermaColonies, goal, gameplay,
     reset, resetEcology, resetBiology, setInputs, step,
   };
 }
