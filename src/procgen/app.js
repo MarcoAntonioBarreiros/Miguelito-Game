@@ -1,4 +1,5 @@
 import { generateLevel } from './generator.js';
+import { createRandom } from './random.js';
 import { createSimulator } from './simulator.js';
 import { createRenderer } from '../render/renderer.js';
 import { microbeEncounters } from '../data/microbes.js';
@@ -16,24 +17,44 @@ let sim = createSimulator();
 let renderer = null;
 let showDebug = true;
 
-function populateMicrobeEncounters(platforms) {
-  microbeEncounters.length = 0;
-  const decorativeTypes = ['rhizobium', 'oportunista', 'trichoderma', 'pseudomonas', 'azospirillum', 'bacillus'];
-  let nextSpawnX = 600;
-  const spacing = 800;
+function shuffledBag(types, rnd) {
+  const bag = [...types];
+  for (let i = bag.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [bag[i], bag[j]] = [bag[j], bag[i]];
+  }
+  return bag;
+}
 
-  for (let i = 3; i < platforms.length; i++) {
-    const plat = platforms[i];
+function populateMicrobeEncounters(platforms, seedValue) {
+  microbeEncounters.length = 0;
+  const rnd = createRandom(`${seedValue}:microbe-communities`);
+  const types = ['rhizobium', 'oportunista', 'trichoderma', 'pseudomonas', 'azospirillum', 'bacillus'];
+  const candidates = platforms.filter(p => !p.recovery && p.logicIndex >= 1 && p.w >= 100);
+  let bag = shuffledBag(types, rnd);
+  let previousType = null;
+  let nextSpawnX = 430 + rnd() * 240;
+
+  for (const plat of candidates) {
     if (plat.x < nextSpawnX) continue;
-    const typeIndex = microbeEncounters.length % decorativeTypes.length;
+    if (bag.length === 0) bag = shuffledBag(types, rnd);
+    let type = bag.pop();
+    if (type === previousType && bag.length) {
+      bag.unshift(type);
+      type = bag.pop();
+    }
+    previousType = type;
+
+    const lateral = (rnd() - .5) * Math.min(plat.w * .35, 70);
     microbeEncounters.push({
-      id: decorativeTypes[typeIndex],
-      x: plat.x + plat.w / 2,
-      y: plat.y - 40,
-      r: 130 + Math.random() * 40,
-      collect: false
+      id: type,
+      x: plat.x + plat.w / 2 + lateral,
+      y: Math.max(95, plat.y - 72 - rnd() * 76),
+      r: 145 + rnd() * 75,
+      territory: 520 + rnd() * 720,
+      collect: false,
     });
-    nextSpawnX = plat.x + spacing;
+    nextSpawnX = plat.x + 470 + rnd() * 430;
   }
 }
 
@@ -44,10 +65,8 @@ function initGame() {
   sim.state.player.y = 400;
   sim.state.gameState = 'play';
   sim.state.mission = 'Encontre Azospirillum e desbloqueie o Impulso Radicular (salto duplo)';
-  populateMicrobeEncounters(levelData.platforms);
+  populateMicrobeEncounters(levelData.platforms, seed);
   sim.resetEcology(microbeEncounters);
-  // O renderizador antigo usa a mesma lista para cenas estáticas. A ecologia
-  // mantém uma cópia própria e limpa a lista para evitar organismos duplicados.
   microbeEncounters.length = 0;
   renderer = createRenderer({ canvas, state: sim.state, entities: sim.entities });
   toastDiv.className = '';
@@ -59,7 +78,7 @@ const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'KeyR') {
-    seed = 'solo-vivo-' + Math.floor(Math.random() * 1000);
+    seed = 'solo-vivo-' + Math.floor(Math.random() * 100000);
     levelData = generateLevel(seed);
     initGame();
   }
@@ -75,6 +94,14 @@ window.addEventListener('keyup', e => {
 
 let lastTime = performance.now();
 let lastToast = '';
+
+function currentLogicIndex() {
+  let logicIndex = -1;
+  for (const platform of levelData.platforms) {
+    if (!platform.recovery && sim.state.player.x >= platform.x) logicIndex = Math.max(logicIndex, platform.logicIndex ?? -1);
+  }
+  return logicIndex;
+}
 
 function loop(now) {
   try {
@@ -102,19 +129,16 @@ function loop(now) {
     const abilities = [
       p.canDoubleJump ? '⬆⬆ Salto' : null,
       p.canDash ? '💨 Dash' : null,
-      p.canPulse ? '💥 Pulso' : null
+      p.canPulse ? '💥 Pulso' : null,
     ].filter(Boolean).join(' | ');
     hudBar.textContent = `Solo: ${p.soil.toFixed(0)} | Esperança: ${p.hope.toFixed(0)} | Exudatos: ${p.exudates}${abilities ? ' | ' + abilities : ''}`;
 
     if (showDebug) {
-      let currentChunk = 0;
-      for (let i = 0; i < levelData.platforms.length; i++) {
-        if (sim.state.player.x >= levelData.platforms[i].x) currentChunk = i;
-      }
-      const ci = levelData.debugInfo[currentChunk - 1];
-      debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${currentChunk}/${levelData.platforms.length - 1}` +
-        (ci ? ` | ${ci.primitive} | ${ci.logic.difficultyTarget}` : '') +
-        `\nEcologia móvel: ${sim.ecology.agents.length} organismos`;
+      const logicIndex = currentLogicIndex();
+      const ci = levelData.debugInfo[logicIndex];
+      debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
+        + (ci ? ` | ${ci.primitive} | ${ci.logic.difficultyTarget} | vão ${ci.gap}px` : '')
+        + `\nEcologia livre: ${sim.ecology.agents.length} organismos em ${sim.ecology.nicheCount} nichos`;
     }
 
     requestAnimationFrame(loop);
