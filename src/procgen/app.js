@@ -17,6 +17,32 @@ let sim = createSimulator();
 let renderer = null;
 let showDebug = true;
 
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+function installFinalGoal(level) {
+  if (level.goal) return;
+  const routePlatforms = level.platforms.filter(p => !p.recovery);
+  const last = routePlatforms[routePlatforms.length - 1];
+  const finalPlatform = {
+    x: last.x + last.w + 78,
+    y: clamp(last.y + 18, 300, 545),
+    w: 340,
+    h: 96,
+    type: 'root',
+    final: true,
+    logicIndex: level.debugInfo.length,
+  };
+  level.platforms.push(finalPlatform);
+  level.goal = {
+    x: finalPlatform.x + finalPlatform.w - 92,
+    y: finalPlatform.y - 132,
+    radius: 78,
+    completed: false,
+  };
+  level.endX = finalPlatform.x + finalPlatform.w + 150;
+  level.cameraMaxX = Math.max(0, level.endX - 1000);
+}
+
 function shuffledBag(types, rnd) {
   const bag = [...types];
   for (let i = bag.length - 1; i > 0; i--) {
@@ -30,7 +56,7 @@ function populateMicrobeEncounters(platforms, seedValue) {
   microbeEncounters.length = 0;
   const rnd = createRandom(`${seedValue}:microbe-communities`);
   const types = ['rhizobium', 'oportunista', 'trichoderma', 'pseudomonas', 'azospirillum', 'bacillus'];
-  const candidates = platforms.filter(p => !p.recovery && p.logicIndex >= 1 && p.w >= 100);
+  const candidates = platforms.filter(p => !p.recovery && !p.final && p.logicIndex >= 1 && p.w >= 100);
   let bag = shuffledBag(types, rnd);
   let previousType = null;
   let nextSpawnX = 430 + rnd() * 240;
@@ -59,6 +85,7 @@ function populateMicrobeEncounters(platforms, seedValue) {
 }
 
 function initGame() {
+  installFinalGoal(levelData);
   sim.reset();
   Object.assign(sim.state.level, levelData);
   sim.state.player.x = 100;
@@ -67,6 +94,7 @@ function initGame() {
   sim.state.mission = 'Encontre Azospirillum e desbloqueie o Impulso Radicular (salto duplo)';
   populateMicrobeEncounters(levelData.platforms, seed);
   sim.resetEcology(microbeEncounters);
+  sim.resetBiology();
   microbeEncounters.length = 0;
   renderer = createRenderer({ canvas, state: sim.state, entities: sim.entities });
   toastDiv.className = '';
@@ -98,20 +126,24 @@ let lastToast = '';
 function currentLogicIndex() {
   let logicIndex = -1;
   for (const platform of levelData.platforms) {
-    if (!platform.recovery && sim.state.player.x >= platform.x) logicIndex = Math.max(logicIndex, platform.logicIndex ?? -1);
+    if (!platform.recovery && !platform.final && sim.state.player.x >= platform.x) {
+      logicIndex = Math.max(logicIndex, platform.logicIndex ?? -1);
+    }
   }
   return logicIndex;
 }
 
 function loop(now) {
   try {
-    const dt = Math.max(0, Math.min((now - lastTime) / 1000, 0.1));
+    const dt = Math.max(0, Math.min((now - lastTime) / 1000, .1));
     lastTime = now;
 
     sim.setInputs(keys);
     sim.step(dt);
     renderer.render();
     sim.ecology.render(ctx);
+    sim.mycorrhiza.render(ctx);
+    sim.goal.render(ctx);
 
     if (sim.state.mission) missionDiv.textContent = '🌱 ' + sim.state.mission;
 
@@ -138,7 +170,8 @@ function loop(now) {
       const ci = levelData.debugInfo[logicIndex];
       debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
         + (ci ? ` | ${ci.primitive} | ${ci.logic.difficultyTarget} | vão ${ci.gap}px` : '')
-        + `\nEcologia livre: ${sim.ecology.agents.length} organismos em ${sim.ecology.nicheCount} nichos`;
+        + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
+        + `\nMicorriza: ${sim.mycorrhiza.tipCount} pontas / ${sim.mycorrhiza.branchCount} ramos`;
     }
 
     requestAnimationFrame(loop);
