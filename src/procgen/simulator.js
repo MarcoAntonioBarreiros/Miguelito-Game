@@ -1,7 +1,7 @@
 import { createPhysicsSystem } from '../physics.js';
 import { createPlayer, resetPlayer } from '../player.js';
 import { createMicrobeArt } from '../data/microbes.js';
-import { createMicrobeEcology } from './microbe-ecology.js';
+import { createRoamingMicrobeEcology } from './microbe-roaming.js';
 
 export function createSimulator() {
   const state = {
@@ -73,7 +73,7 @@ export function createSimulator() {
     toneNow: () => {}
   };
 
-  const ecology = createMicrobeEcology({ state, entities });
+  const ecology = createRoamingMicrobeEcology({ state, entities });
   state.microbeEcology = ecology;
   const physics = createPhysicsSystem({ state, input, entities, hud, audio });
 
