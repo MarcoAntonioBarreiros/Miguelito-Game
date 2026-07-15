@@ -4,6 +4,7 @@ import { createMicrobeArt } from '../data/microbes.js';
 import { createRoamingMicrobeEcology } from './microbe-roaming.js';
 import { createMycorrhizaGrowth } from './mycorrhiza-growth.js';
 import { createGoalSystem } from './goal-system.js';
+import { createEcologicalGameplay } from './ecological-gameplay.js';
 
 export function createSimulator() {
   const state = {
@@ -11,16 +12,9 @@ export function createSimulator() {
     gameState: 'play',
     player: createPlayer(),
     level: {
-      platforms: [],
-      hazards: [],
-      crystals: [],
-      enemies: [],
-      exudates: [],
-      allies: [],
-      checkpoints: [],
-      particles: [],
-      pulses: [],
-      goal: null,
+      platforms: [], hazards: [], crystals: [], enemies: [], exudates: [],
+      allies: [], checkpoints: [], particles: [], pulses: [], goal: null,
+      exudateClouds: [], biofilms: [],
     },
     jumpHeldLast: false,
     discoveredMicrobes: new Set(),
@@ -35,7 +29,7 @@ export function createSimulator() {
       ArrowRight: false, KeyD: false,
       Space: false, KeyW: false, ArrowUp: false,
       ShiftLeft: false, ShiftRight: false, KeyJ: false,
-      KeyK: false,
+      KeyK: false, KeyE: false,
     },
   };
 
@@ -45,8 +39,7 @@ export function createSimulator() {
         const a = Math.random() * Math.PI * 2;
         const v = Math.random() * speed;
         state.level.particles.push({
-          x,
-          y,
+          x, y,
           vx: Math.cos(a) * v,
           vy: Math.sin(a) * v,
           r: 1 + Math.random() * 2,
@@ -56,15 +49,15 @@ export function createSimulator() {
         });
       }
     },
-    discoverMicrobe: id => {
-      state.discoveredMicrobes.add(id);
-    },
+    discoverMicrobe: id => { state.discoveredMicrobes.add(id); },
     respawn: () => {
       state.player.x = state.currentCheckpoint ? state.currentCheckpoint.x : 100;
       state.player.y = state.currentCheckpoint ? state.currentCheckpoint.y : 400;
       state.player.vx = 0;
       state.player.vy = 0;
       state.player.alive = true;
+      state.player.infectionExposure = 0;
+      state.player.infection = Math.max(0, (state.player.infection || 0) - .28);
     },
   };
 
@@ -83,9 +76,11 @@ export function createSimulator() {
   const ecology = createRoamingMicrobeEcology({ state, entities });
   const mycorrhiza = createMycorrhizaGrowth({ state, entities });
   const goal = createGoalSystem({ state, entities });
+  const gameplay = createEcologicalGameplay({ state, input, entities, ecology });
   state.microbeEcology = ecology;
   state.mycorrhizaGrowth = mycorrhiza;
   state.goalSystem = goal;
+  state.ecologicalGameplay = gameplay;
 
   const physics = createPhysicsSystem({ state, input, entities, hud, audio });
 
@@ -99,44 +94,35 @@ export function createSimulator() {
     ecology.clear();
     mycorrhiza.clear();
     goal.clear();
+    gameplay.clear();
     for (const k in input.keys) input.keys[k] = false;
   }
 
-  function resetEcology(encounters) {
-    ecology.reset(encounters);
-  }
+  function resetEcology(encounters) { ecology.reset(encounters); }
 
   function resetBiology() {
     mycorrhiza.reset();
     goal.reset();
+    gameplay.reset();
   }
 
   function setInputs(newKeys) {
     for (const k in input.keys) input.keys[k] = false;
-    for (const k in newKeys) {
-      if (newKeys[k]) input.keys[k] = true;
-    }
+    for (const k in newKeys) if (newKeys[k]) input.keys[k] = true;
   }
 
   function step(dt) {
+    gameplay.prepare(dt);
     physics.update(dt);
     ecology.update(dt);
+    gameplay.update(dt);
     mycorrhiza.update(dt);
     goal.update(dt);
     if (state.toastTime > 0) state.toastTime -= dt;
   }
 
   return {
-    state,
-    input,
-    entities,
-    ecology,
-    mycorrhiza,
-    goal,
-    reset,
-    resetEcology,
-    resetBiology,
-    setInputs,
-    step,
+    state, input, entities, ecology, mycorrhiza, goal, gameplay,
+    reset, resetEcology, resetBiology, setInputs, step,
   };
 }
