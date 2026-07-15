@@ -87,7 +87,7 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
     player.onGround = false;
     player.y += player.vy * dt;
     for (const p of level.platforms) {
-      if (p.mycorrhizaStructure) {
+      if (p.mycorrhizaStructure || p.oneWay) {
         const previousFeet = prevY + player.h;
         const currentFeet = player.y + player.h;
         const horizontalOverlap = player.x + player.w > p.x + 3 && player.x < p.x + p.w - 3;
