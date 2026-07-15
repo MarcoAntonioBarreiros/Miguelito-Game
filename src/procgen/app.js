@@ -140,6 +140,7 @@ function loop(now) {
     sim.step(dt);
     renderer.render();
     sim.ecology.render(ctx);
+    sim.beneficialInoculants.render(ctx);
     sim.trichodermaColonies.render(ctx);
     sim.trichoderma.render(ctx);
     sim.mycorrhizaStructures.render(ctx);
@@ -160,10 +161,13 @@ function loop(now) {
     }
 
     const player = sim.state.player;
+    const inoculationAction = sim.trichodermaColonies.followerCount > 0
+      ? `🧫 E Inocular Trichoderma (${sim.trichodermaColonies.followerCount})`
+      : sim.beneficialInoculants.followerCount > 0
+        ? `🧪 E Inocular benéficas (${sim.beneficialInoculants.followerCount})`
+        : player.exudates > 0 ? '🟢 E Exsudato' : null;
     const abilities = [
-      sim.trichodermaColonies.followerCount > 0
-        ? `🧫 E Inocular (${sim.trichodermaColonies.followerCount})`
-        : player.exudates > 0 ? '🟢 E Exsudato' : null,
+      inoculationAction,
       player.canDoubleJump ? '⬆⬆ Salto' : null,
       player.canDash ? '💨 Dash' : null,
       player.canPulse ? '💥 Pulso' : null,
@@ -175,11 +179,14 @@ function loop(now) {
       const logicIndex = currentLogicIndex();
       const info = levelData.debugInfo[logicIndex];
       const vigor = Math.round(sim.trichodermaColonies.vigorAverage * 100);
+      const beneficialVigor = Math.round(sim.beneficialInoculants.vigorAverage * 100);
       debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
         + (info ? ` | ${info.primitive} | ${info.logic.difficultyTarget} | vão ${info.gap}px` : '')
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
         + `\nMicorriza AM: ${sim.mycorrhiza.tipCount} pontas / ${sim.mycorrhiza.branchCount} ramos / ${sim.mycorrhiza.arbusculeCount} arbúsculos`
         + `\nEstruturas AM: ${sim.mycorrhizaStructures.growingCount} crescendo / ${sim.mycorrhizaStructures.matureCount} maduras (${sim.mycorrhizaStructures.ladderCount} escadas, ${sim.mycorrhizaStructures.bridgeCount} pontes)`
+        + `\nInoculantes: ${sim.beneficialInoculants.followerCount} seguindo / ${sim.beneficialInoculants.colonyCount} colônias / vigor médio ${beneficialVigor}%`
+        + (sim.beneficialInoculants.colonySummary ? ` [${sim.beneficialInoculants.colonySummary}]` : '')
         + `\nTrichoderma: ${sim.trichodermaColonies.followerCount} seguindo / ${sim.trichodermaColonies.colonyCount} colônias / vigor médio ${vigor}%`
         + `\nHifas de ataque: ${sim.trichoderma.tipCount} pontas / ${sim.trichoderma.attackCount} alvos / ${sim.trichoderma.searchCount} em busca`
         + `\nInterações: ${sim.gameplay.cloudCount} nuvens / ${sim.gameplay.biofilmCount} biofilmes`;
