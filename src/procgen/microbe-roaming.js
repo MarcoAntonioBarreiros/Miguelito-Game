@@ -1,33 +1,34 @@
 import { H } from '../core/constants.js';
 import { createMicrobeEcology, MICROBE_MOTION_PROFILES } from './microbe-ecology.js';
 
+const TAU = Math.PI * 2;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-const MIGRATION_PULL = {
-  rhizobium: .78,
-  azospirillum: .9,
-  bacillus: .66,
-  pseudomonas: .86,
-  oportunista: .58,
-  trichoderma: .62,
+const PROFILE_TUNING = {
+  rhizobium: { homePull: .58, cohesion: .065, alignment: .045, wander: .72, turbulence: 68, taxis: 92 },
+  azospirillum: { homePull: .62, cohesion: .05, alignment: .035, wander: .92, turbulence: 96, taxis: 108 },
+  bacillus: { homePull: .52, cohesion: .085, alignment: .05, wander: .58, turbulence: 52, taxis: 70 },
+  pseudomonas: { homePull: .6, cohesion: .045, alignment: .03, wander: .9, turbulence: 88, taxis: 112 },
+  oportunista: { homePull: .42, cohesion: .025, alignment: .015, wander: 1.18, turbulence: 78, taxis: 62 },
+  trichoderma: { homePull: .46, cohesion: .03, alignment: .018, wander: 1.05, turbulence: 72, taxis: 74 },
 };
 
 const ROAMING_DISTANCE = {
-  rhizobium: 760,
-  azospirillum: 1120,
-  bacillus: 620,
-  pseudomonas: 1040,
-  oportunista: 1480,
-  trichoderma: 980,
+  rhizobium: 900,
+  azospirillum: 1320,
+  bacillus: 720,
+  pseudomonas: 1240,
+  oportunista: 1650,
+  trichoderma: 1180,
 };
 
 const MIGRATION_INTERVAL = {
-  rhizobium: [5.5, 9.5],
-  azospirillum: [4.2, 7.2],
-  bacillus: [7.5, 12.5],
-  pseudomonas: [4.8, 8.2],
-  oportunista: [6.5, 11.5],
-  trichoderma: [6.2, 10.2],
+  rhizobium: [5.2, 8.7],
+  azospirillum: [3.8, 6.3],
+  bacillus: [7.2, 11.5],
+  pseudomonas: [4.1, 7.1],
+  oportunista: [5.5, 9.8],
+  trichoderma: [5.8, 9.4],
 };
 
 function centroid(agents) {
@@ -41,10 +42,39 @@ function centroid(agents) {
   return { x: x / agents.length, y: y / agents.length };
 }
 
+function smoothField(x, y, time, seed) {
+  const n1 = Math.sin(x * .0073 + time * .71 + seed * 1.13);
+  const n2 = Math.cos(y * .0091 - time * .53 + seed * 1.91);
+  const n3 = Math.sin((x + y) * .0038 + time * .29 + seed * .47);
+  const n4 = Math.cos((x - y) * .0047 - time * .37 + seed * 2.17);
+  const angle = (n1 + n2 * .72 + n3 * .54 + n4 * .38) * 1.85 + seed;
+  const pulse = .62 + .38 * Math.sin(time * .83 + seed * 3.1 + x * .002);
+  return { x: Math.cos(angle) * pulse, y: Math.sin(angle) * pulse };
+}
+
+function quadraticPoint(a, c, b, t) {
+  const u = 1 - t;
+  return {
+    x: u * u * a.x + 2 * u * t * c.x + t * t * b.x,
+    y: u * u * a.y + 2 * u * t * c.y + t * t * b.y,
+  };
+}
+
+function nearestPointOnRect(x, y, rect) {
+  return {
+    x: clamp(x, rect.x, rect.x + rect.w),
+    y: clamp(y, rect.y, rect.y + rect.h),
+  };
+}
+
 export function createRoamingMicrobeEcology({ state, entities }) {
-  for (const [type, pull] of Object.entries(MIGRATION_PULL)) {
-    if (MICROBE_MOTION_PROFILES[type]) MICROBE_MOTION_PROFILES[type].homePull = pull;
+  for (const [type, values] of Object.entries(PROFILE_TUNING)) {
+    const profile = MICROBE_MOTION_PROFILES[type];
+    if (!profile) continue;
+    Object.assign(profile, values);
+    profile.separation = Math.max(profile.separation || 1, 1.55);
   }
+
   const base = createMicrobeEcology({ state, entities });
   const niches = [];
   const groups = new Map();
@@ -53,25 +83,41 @@ export function createRoamingMicrobeEcology({ state, entities }) {
     niches.length = 0;
     state.level.platforms.forEach((platform, index) => {
       if (platform.w < 62) return;
-      const lift = 62 + ((index * 37) % 86);
+      const lift = 58 + ((index * 41) % 104);
       niches.push({
         x: platform.x + platform.w / 2,
-        y: clamp(platform.y - lift, 76, H - 105),
+        y: clamp(platform.y - lift, 74, H - 104),
+        kind: platform.final ? 'goal-root' : 'root',
         platformIndex: index,
         recovery: Boolean(platform.recovery),
-        resource: false,
       });
     });
     state.level.exudates.forEach((exudate, index) => {
       niches.push({
         x: exudate.x,
-        y: clamp(exudate.y - 34, 72, H - 105),
-        platformIndex: -1,
-        recovery: false,
-        resource: true,
+        y: clamp(exudate.y - 28, 70, H - 104),
+        kind: 'exudate',
         resourceIndex: index,
+        recovery: false,
       });
     });
+    state.level.crystals.forEach((crystal, index) => {
+      niches.push({
+        x: crystal.x + crystal.w / 2,
+        y: clamp(crystal.y - 42, 72, H - 110),
+        kind: 'mineral',
+        mineralIndex: index,
+        recovery: false,
+      });
+    });
+    if (state.level.goal) {
+      niches.push({
+        x: state.level.goal.x,
+        y: state.level.goal.y + 34,
+        kind: 'goal-root',
+        recovery: false,
+      });
+    }
   }
 
   function nearestNicheIndex(x, y, includeRecovery = true) {
@@ -79,7 +125,7 @@ export function createRoamingMicrobeEcology({ state, entities }) {
     let bestDistance = Infinity;
     niches.forEach((niche, index) => {
       if (!includeRecovery && niche.recovery) return;
-      const distance = Math.hypot(niche.x - x, (niche.y - y) * 1.35);
+      const distance = Math.hypot(niche.x - x, (niche.y - y) * 1.25);
       if (distance < bestDistance) {
         bestDistance = distance;
         best = index;
@@ -93,30 +139,34 @@ export function createRoamingMicrobeEcology({ state, entities }) {
     return min + Math.random() * (max - min);
   }
 
-  function chooseNextNiche(group, center, forceDifferent = false) {
-    const distanceLimit = group.territory || ROAMING_DISTANCE[group.type] || 800;
-    const current = niches[group.nicheIndex] || niches[0];
-    if (!current) return 0;
+  function nichePreference(type, niche) {
+    let weight = 1;
+    if (niche.kind === 'exudate' && ['rhizobium', 'azospirillum', 'pseudomonas'].includes(type)) weight += 4.2;
+    if (niche.kind === 'mineral' && type === 'pseudomonas') weight += 4.8;
+    if ((niche.kind === 'root' || niche.kind === 'goal-root') && ['rhizobium', 'azospirillum', 'bacillus'].includes(type)) weight += 2.4;
+    if (niche.recovery && !['oportunista', 'trichoderma'].includes(type)) weight *= .25;
+    return weight;
+  }
 
+  function chooseNextNiche(group, center, forceDifferent = false) {
+    const distanceLimit = group.territory || ROAMING_DISTANCE[group.type] || 900;
     const candidates = [];
     niches.forEach((niche, index) => {
-      if (index === group.nicheIndex && forceDifferent) return;
+      if (forceDifferent && index === group.toIndex) return;
       const dx = niche.x - center.x;
       const dy = niche.y - center.y;
-      const distance = Math.hypot(dx, dy * 1.35);
-      if (distance < 120 || distance > distanceLimit) return;
-      if (niche.recovery && group.type !== 'oportunista' && group.type !== 'trichoderma') return;
-
-      let weight = 1;
-      if (Math.sign(dx) === group.direction) weight += 1.7;
-      if (niche.resource && (group.type === 'pseudomonas' || group.type === 'rhizobium' || group.type === 'azospirillum')) weight += 2.6;
-      if (Math.abs(dy) < 115) weight += .8;
+      const distance = Math.hypot(dx, dy * 1.2);
+      if (distance < 150 || distance > distanceLimit) return;
+      let weight = nichePreference(group.type, niche);
+      if (Math.sign(dx || group.direction) === group.direction) weight += 1.35;
+      if (Math.abs(dy) > 85) weight += .9;
+      if (Math.abs(dy) > 180) weight += .45;
       candidates.push({ index, weight });
     });
 
     if (!candidates.length) {
       group.direction *= -1;
-      return nearestNicheIndex(center.x + group.direction * Math.min(300, distanceLimit * .4), center.y, false);
+      return nearestNicheIndex(center.x + group.direction * Math.min(420, distanceLimit * .45), center.y - 90, false);
     }
 
     const total = candidates.reduce((sum, candidate) => sum + candidate.weight, 0);
@@ -128,16 +178,42 @@ export function createRoamingMicrobeEcology({ state, entities }) {
     return candidates[candidates.length - 1].index;
   }
 
-  function applyGroupTarget(group) {
-    const target = niches[group.nicheIndex];
-    if (!target) return;
+  function beginLeg(group, center) {
+    group.fromIndex = group.toIndex;
+    group.toIndex = chooseNextNiche(group, center, true);
+    group.progress = 0;
+    group.duration = randomInterval(group.type);
+    group.direction = Math.sign((niches[group.toIndex]?.x || center.x) - center.x) || group.direction;
+    const a = niches[group.fromIndex] || center;
+    const b = niches[group.toIndex] || center;
+    group.curve = {
+      x: (a.x + b.x) / 2 + (Math.random() - .5) * 190,
+      y: clamp((a.y + b.y) / 2 + (Math.random() - .5) * 260, 80, H - 120),
+    };
+  }
+
+  function applyGroupRoute(group) {
+    const from = niches[group.fromIndex];
+    const to = niches[group.toIndex];
+    if (!from || !to) return;
     const groupAgents = base.agents.filter(agent => agent.zoneIndex === group.zoneIndex);
     groupAgents.forEach((agent, index) => {
-      const angle = index / Math.max(1, groupAgents.length) * Math.PI * 2 + agent.phase * .14;
-      const spread = 24 + (index % 3) * 13;
-      agent.homeX = target.x + Math.cos(angle) * spread;
-      agent.homeY = target.y + Math.sin(angle) * spread * .62;
-      agent.radius = Math.max(agent.radius, 180);
+      const lag = agent.routeLag || 0;
+      const localT = clamp(group.progress - lag, 0, 1);
+      const eased = localT * localT * (3 - 2 * localT);
+      const point = quadraticPoint(from, group.curve, to, eased);
+      const ahead = quadraticPoint(from, group.curve, to, clamp(eased + .025, 0, 1));
+      const dx = ahead.x - point.x;
+      const dy = ahead.y - point.y;
+      const d = Math.max(1, Math.hypot(dx, dy));
+      const nx = -dy / d;
+      const ny = dx / d;
+      const wave = Math.sin(state.time * agent.individualRate + agent.noiseSeed) * agent.lateral;
+      const field = smoothField(point.x, point.y, state.time * .65, agent.noiseSeed);
+      const spread = wave + (index - (groupAgents.length - 1) / 2) * 4.5;
+      agent.homeX = point.x + nx * spread + field.x * agent.turbulence * .22;
+      agent.homeY = point.y + ny * spread + field.y * agent.turbulence * .18;
+      agent.radius = Math.max(agent.radius, 230);
     });
   }
 
@@ -146,22 +222,36 @@ export function createRoamingMicrobeEcology({ state, entities }) {
     buildNiches();
     groups.clear();
 
+    base.agents.forEach((agent, index) => {
+      const profile = PROFILE_TUNING[agent.type] || {};
+      agent.routeLag = Math.random() * .16;
+      agent.lateral = 18 + Math.random() * 62;
+      agent.turbulence = (profile.turbulence || 60) * (.55 + Math.random() * .8);
+      agent.individualRate = .55 + Math.random() * 1.35;
+      agent.noiseSeed = Math.random() * TAU + index * .173;
+      agent.taxisSensitivity = (profile.taxis || 70) * (.65 + Math.random() * .7);
+    });
+
     base.encounters.forEach((zone, zoneIndex) => {
       const zoneAgents = base.agents.filter(agent => agent.zoneIndex === zoneIndex);
       if (!zoneAgents.length || !niches.length) return;
       const center = centroid(zoneAgents);
-      const nicheIndex = nearestNicheIndex(center.x, center.y, false);
-      groups.set(zoneIndex, {
+      const start = nearestNicheIndex(center.x, center.y, false);
+      const group = {
         zoneIndex,
         type: zone.id,
-        territory: zone.territory || ROAMING_DISTANCE[zone.id] || 800,
-        nicheIndex,
-        timer: 1.8 + Math.random() * 3,
+        territory: zone.territory || ROAMING_DISTANCE[zone.id] || 900,
+        fromIndex: start,
+        toIndex: start,
+        progress: 1,
+        duration: randomInterval(zone.id),
         direction: Math.random() < .5 ? -1 : 1,
-      });
+        curve: { x: center.x, y: center.y },
+      };
+      groups.set(zoneIndex, group);
+      beginLeg(group, center);
     });
-
-    for (const group of groups.values()) applyGroupTarget(group);
+    for (const group of groups.values()) applyGroupRoute(group);
   }
 
   function clear() {
@@ -170,30 +260,128 @@ export function createRoamingMicrobeEcology({ state, entities }) {
     base.clear();
   }
 
+  function nearestAttractor(agent) {
+    const candidates = [];
+    if (['rhizobium', 'azospirillum', 'pseudomonas'].includes(agent.type)) {
+      state.level.exudates.forEach(exudate => {
+        if (!exudate.taken) candidates.push({ x: exudate.x, y: exudate.y, strength: 1.25 });
+      });
+    }
+    if (agent.type === 'pseudomonas') {
+      state.level.crystals.forEach(crystal => {
+        if (!crystal.broken) candidates.push({ x: crystal.x + crystal.w / 2, y: crystal.y + crystal.h * .25, strength: 1.1 });
+      });
+    }
+    if (['rhizobium', 'azospirillum', 'bacillus'].includes(agent.type)) {
+      const nearbyPlatforms = state.level.platforms.filter(p => Math.abs((p.x + p.w / 2) - agent.x) < 520);
+      nearbyPlatforms.forEach(p => candidates.push({ x: clamp(agent.x, p.x + 12, p.x + p.w - 12), y: p.y - 46, strength: .55 }));
+    }
+    if (agent.type === 'oportunista') {
+      candidates.push({ x: state.player.x + state.player.w / 2, y: state.player.y + state.player.h / 2, strength: .62 });
+    }
+    if (agent.type === 'trichoderma') {
+      base.agents.forEach(other => {
+        if (other.type === 'oportunista') candidates.push({ x: other.x, y: other.y, strength: 1.05 });
+      });
+    }
+
+    let best = null;
+    let bestScore = Infinity;
+    candidates.forEach(candidate => {
+      const distance = Math.hypot(candidate.x - agent.x, candidate.y - agent.y);
+      const score = distance / candidate.strength;
+      if (distance < 620 && score < bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    });
+    return best;
+  }
+
+  function applyContinuousFields(dt) {
+    for (const agent of base.agents) {
+      const tuning = PROFILE_TUNING[agent.type] || PROFILE_TUNING.rhizobium;
+      const field = smoothField(agent.x, agent.y, state.time, agent.noiseSeed);
+      let fx = field.x * agent.turbulence;
+      let fy = field.y * agent.turbulence;
+
+      const attractor = nearestAttractor(agent);
+      if (attractor) {
+        const dx = attractor.x - agent.x;
+        const dy = attractor.y - agent.y;
+        const distance = Math.max(1, Math.hypot(dx, dy));
+        const gradient = clamp(1 - distance / 620, 0, 1);
+        fx += dx / distance * agent.taxisSensitivity * gradient * attractor.strength;
+        fy += dy / distance * agent.taxisSensitivity * gradient * attractor.strength;
+      }
+
+      for (const hazard of state.level.hazards) {
+        const point = nearestPointOnRect(agent.x, agent.y, hazard);
+        const dx = agent.x - point.x;
+        const dy = agent.y - point.y;
+        const distance = Math.max(1, Math.hypot(dx, dy));
+        if (distance < 150) {
+          const force = (1 - distance / 150) * 270;
+          fx += dx / distance * force;
+          fy += dy / distance * force - 75;
+        }
+      }
+
+      if (agent.type !== 'oportunista') {
+        for (const enemy of state.level.enemies) {
+          if (!enemy.alive) continue;
+          const ex = enemy.x + enemy.w / 2;
+          const ey = enemy.y + enemy.h / 2;
+          const dx = agent.x - ex;
+          const dy = agent.y - ey;
+          const distance = Math.max(1, Math.hypot(dx, dy));
+          if (distance < 230) {
+            const force = (1 - distance / 230) * 225;
+            fx += dx / distance * force;
+            fy += dy / distance * force;
+          }
+        }
+      }
+
+      const response = dt * (agent.type === 'bacillus' ? .34 : .48);
+      agent.vx += fx * response;
+      agent.vy += fy * response;
+      const maxSpeed = (MICROBE_MOTION_PROFILES[agent.type]?.speed || 70) * 1.45;
+      const speed = Math.hypot(agent.vx, agent.vy);
+      if (speed > maxSpeed) {
+        agent.vx = agent.vx / speed * maxSpeed;
+        agent.vy = agent.vy / speed * maxSpeed;
+      }
+      agent.angle = Math.atan2(agent.vy, agent.vx);
+      agent.x += fx * dt * dt * .22;
+      agent.y += fy * dt * dt * .22;
+      agent.y = clamp(agent.y, 48, H - 48);
+      agent.homeX += field.x * tuning.wander * 7;
+      agent.homeY += field.y * tuning.wander * 5;
+    }
+  }
+
   function update(dt) {
     for (const group of groups.values()) {
       const groupAgents = base.agents.filter(agent => agent.zoneIndex === group.zoneIndex);
       if (!groupAgents.length) continue;
-      const center = centroid(groupAgents);
-      const target = niches[group.nicheIndex];
-      group.timer -= dt;
-
-      const arrived = target && Math.hypot(target.x - center.x, target.y - center.y) < 92;
-      if (group.timer <= 0 || arrived) {
-        group.nicheIndex = chooseNextNiche(group, center, true);
-        group.timer = randomInterval(group.type);
-        if (Math.random() < .22) group.direction *= -1;
-      }
-      applyGroupTarget(group);
-
-      const zone = base.encounters[group.zoneIndex];
-      if (zone) {
-        zone.x = center.x;
-        zone.y = center.y;
-        zone.r = Math.max(zone.r || 145, 165);
-      }
+      group.progress += dt / Math.max(1.8, group.duration);
+      if (group.progress >= 1) beginLeg(group, centroid(groupAgents));
+      applyGroupRoute(group);
     }
+
     base.update(dt);
+    applyContinuousFields(dt);
+
+    for (const group of groups.values()) {
+      const groupAgents = base.agents.filter(agent => agent.zoneIndex === group.zoneIndex);
+      const zone = base.encounters[group.zoneIndex];
+      if (!zone || !groupAgents.length) continue;
+      const center = centroid(groupAgents);
+      zone.x = center.x;
+      zone.y = center.y;
+      zone.r = Math.max(zone.r || 145, 185);
+    }
   }
 
   return {
