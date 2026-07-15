@@ -181,8 +181,9 @@ export function createBeneficialInoculants({ state, input, ecology, entities }) 
       const column = index % 3;
       const lateral = (column - 1) * (34 + row * 4);
       const targetX = playerX - state.player.facing * (80 + row * 28) + lateral;
+      const escortLift = agent.type === 'bacillus' ? 74 : 0;
       const targetY = clamp(
-        playerY - 42 - row * 27 + Math.sin(state.time * 2.25 + index * .8) * 10,
+        playerY - 42 - row * 27 - escortLift + Math.sin(state.time * 2.25 + index * .8) * 10,
         62,
         H - 68,
       );
