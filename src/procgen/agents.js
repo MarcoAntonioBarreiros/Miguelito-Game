@@ -28,7 +28,6 @@ export function validateChunk(fromPlatform, toPlatform, primitive, agentType = '
   const isDouble = primitive.id.includes('double');
   let frames = 0;
   let phase = 'approach';
-  let hasJumped = false;
   let hasDoubleJumped = false;
   let hasDashed = false;
   let airFrames = 0;
@@ -43,7 +42,6 @@ export function validateChunk(fromPlatform, toPlatform, primitive, agentType = '
       if (sim.state.player.x >= jumpLine) phase = 'jump';
     } else if (phase === 'jump') {
       keys = { ArrowRight: true, Space: true };
-      hasJumped = true;
       releaseFrames = 0;
       phase = 'airborne';
     } else {
@@ -61,8 +59,6 @@ export function validateChunk(fromPlatform, toPlatform, primitive, agentType = '
         hasDashed = true;
       }
     }
-
-    if (hasJumped && phase === 'airborne' && releaseFrames < 6) keys.Space = false;
 
     sim.setInputs(keys);
     sim.step(DT);
