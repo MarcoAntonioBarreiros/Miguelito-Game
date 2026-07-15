@@ -155,6 +155,7 @@ function loop(now) {
     sim.mycorrhiza.render(ctx);
     sim.goal.render(ctx);
     sim.gameplay.render(ctx);
+    sim.bacillusBioprotection.render(ctx);
     platformVisuals.renderLabel(ctx);
 
     if (sim.state.mission) missionDiv.textContent = '🌱 ' + sim.state.mission;
@@ -182,7 +183,10 @@ function loop(now) {
       player.canPulse ? '💥 Pulso' : null,
     ].filter(Boolean).join(' | ');
     const infection = player.infection > .01 ? ` | Infecção: ${(player.infection * 100).toFixed(0)}%` : '';
-    hudBar.textContent = `Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exudatos: ${player.exudates}${infection}${abilities ? ' | ' + abilities : ''}`;
+    const bacillusDefense = (player.bacillusResistance || 0) > .04
+      ? ` | Defesa Bacillus: ${Math.round(player.bacillusResistance * 100)}%`
+      : '';
+    hudBar.textContent = `Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exudatos: ${player.exudates}${infection}${bacillusDefense}${abilities ? ' | ' + abilities : ''}`;
 
     if (showDebug) {
       const logicIndex = currentLogicIndex();
@@ -198,6 +202,8 @@ function loop(now) {
         + `\nEstruturas AM: ${sim.mycorrhizaStructures.growingCount} crescendo / ${sim.mycorrhizaStructures.matureCount} maduras (${sim.mycorrhizaStructures.ladderCount} escadas, ${sim.mycorrhizaStructures.bridgeCount} pontes)`
         + `\nInoculantes: ${sim.beneficialInoculants.followerCount} seguindo / ${sim.beneficialInoculants.colonyCount} colônias / vigor médio ${beneficialVigor}%`
         + (sim.beneficialInoculants.colonySummary ? ` [${sim.beneficialInoculants.colonySummary}]` : '')
+        + `\nBacillus: ${sim.bacillusBioprotection.matureBiofilmCount} biofilmes maduros / ${sim.bacillusBioprotection.sporulatedCount} esporulados / ${sim.bacillusBioprotection.germinatingCount} reativando`
+        + `\nBioproteção: ${sim.bacillusBioprotection.fungiUnderAntibiosis} fungos sob antibiose / ${sim.bacillusBioprotection.protectedRootCount} raízes protegidas`
         + `\nSideróforos: ${sim.pseudomonasSiderophores.freeCount} livres / ${sim.pseudomonasSiderophores.loadedCount} com Fe³⁺ / Fe recuperado ${ironRecovered} / ${sim.pseudomonasSiderophores.fungiLimitedCount} fungos limitados`
         + `\nDepósitos Fe³⁺: ${sim.pseudomonasSiderophores.activeDepositCount}/${sim.pseudomonasSiderophores.depositCount} ativos / ${sim.pseudomonasSiderophores.activeColonyCount} colônias com reserva`
         + `\nRaízes laterais: ${sim.azospirillumRootGrowth.rootCount} totais / ${sim.azospirillumRootGrowth.growingCount} crescendo / ${sim.azospirillumRootGrowth.matureCount} maduras / ${sim.azospirillumRootGrowth.pausedCount} pausadas`
