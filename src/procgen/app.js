@@ -2,6 +2,7 @@ import { generateLevel } from './generator.js';
 import { createRandom } from './random.js';
 import { createSimulator } from './simulator.js';
 import { createRenderer } from '../render/renderer.js';
+import { createPlatformVisuals } from './platform-visuals.js';
 import { microbeEncounters } from '../data/microbes.js';
 
 const canvas = document.querySelector('canvas');
@@ -15,6 +16,7 @@ let seed = 'solo-vivo-' + Math.floor(Math.random() * 1000);
 let levelData = generateLevel(seed);
 let sim = createSimulator();
 let renderer = null;
+let platformVisuals = null;
 let showDebug = true;
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -97,6 +99,7 @@ function initGame() {
   sim.resetBiology();
   microbeEncounters.length = 0;
   renderer = createRenderer({ canvas, state: sim.state, entities: sim.entities });
+  platformVisuals = createPlatformVisuals({ state: sim.state });
   toastDiv.className = '';
 }
 
@@ -139,6 +142,7 @@ function loop(now) {
     sim.setInputs(keys);
     sim.step(dt);
     renderer.render();
+    platformVisuals.drawWorld(ctx);
     sim.ecology.render(ctx);
     sim.beneficialInoculants.render(ctx);
     sim.rhizobiumNodulation.render(ctx);
@@ -148,6 +152,7 @@ function loop(now) {
     sim.mycorrhiza.render(ctx);
     sim.goal.render(ctx);
     sim.gameplay.render(ctx);
+    platformVisuals.renderLabel(ctx);
 
     if (sim.state.mission) missionDiv.textContent = '🌱 ' + sim.state.mission;
 
