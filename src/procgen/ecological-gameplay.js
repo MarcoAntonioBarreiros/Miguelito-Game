@@ -61,6 +61,7 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
       return;
     }
     player.exudates--;
+    if (clouds.length >= 4) clouds.shift();
     const cloud = {
       id: nextCloudId++,
       x: player.x + player.w / 2 + player.facing * 24,
@@ -218,7 +219,8 @@ export function createEcologicalGameplay({ state, input, entities, ecology }) {
       if (Math.hypot(center.x - film.x, center.y - film.y) >= film.radius) continue;
       player.infection = Math.max(0, (player.infection || 0) - dt * .72);
       player.infectionExposure = Math.max(0, (player.infectionExposure || 0) - dt * 1.8);
-      player.soil = Math.min(200, player.soil + dt * .32);
+      player.soil += dt * .32;
+      if (film.checkpoint?.active) film.activated = true;
       if (!film.activated) {
         film.activated = true;
         if (film.checkpoint) film.checkpoint.active = true;
