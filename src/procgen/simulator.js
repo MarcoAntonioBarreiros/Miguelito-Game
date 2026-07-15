@@ -4,6 +4,7 @@ import { createMicrobeArt } from '../data/microbes.js';
 import { createRoamingMicrobeEcology } from './microbe-roaming.js';
 import { createMycorrhizaGrowth } from './mycorrhiza-growth.js';
 import { createTrichodermaGrowth } from './trichoderma-growth.js';
+import { createTrichodermaRecruitment } from './trichoderma-recruitment.js';
 import { createGoalSystem } from './goal-system.js';
 import { createEcologicalGameplay } from './ecological-gameplay.js';
 
@@ -77,11 +78,13 @@ export function createSimulator() {
   const ecology = createRoamingMicrobeEcology({ state, entities });
   const mycorrhiza = createMycorrhizaGrowth({ state, entities });
   const trichoderma = createTrichodermaGrowth({ state, entities, ecology });
+  const recruitment = createTrichodermaRecruitment({ state, ecology, entities });
   const goal = createGoalSystem({ state, entities });
   const gameplay = createEcologicalGameplay({ state, input, entities, ecology });
   state.microbeEcology = ecology;
   state.mycorrhizaGrowth = mycorrhiza;
   state.trichodermaGrowth = trichoderma;
+  state.trichodermaRecruitment = recruitment;
   state.goalSystem = goal;
   state.ecologicalGameplay = gameplay;
 
@@ -94,6 +97,7 @@ export function createSimulator() {
     state.currentCheckpoint = null;
     state.level.platforms = [];
     state.level.hazards = [];
+    recruitment.clear();
     ecology.clear();
     mycorrhiza.clear();
     trichoderma.clear();
@@ -109,6 +113,7 @@ export function createSimulator() {
   function resetBiology() {
     mycorrhiza.reset();
     trichoderma.reset();
+    recruitment.reset();
     goal.reset();
     gameplay.reset();
   }
@@ -122,6 +127,7 @@ export function createSimulator() {
     gameplay.prepare(dt);
     physics.update(dt);
     ecology.update(dt);
+    recruitment.update(dt);
     gameplay.update(dt);
     trichoderma.update(dt);
     mycorrhiza.update(dt);
@@ -130,7 +136,7 @@ export function createSimulator() {
   }
 
   return {
-    state, input, entities, ecology, mycorrhiza, trichoderma, goal, gameplay,
+    state, input, entities, ecology, mycorrhiza, trichoderma, recruitment, goal, gameplay,
     reset, resetEcology, resetBiology, setInputs, step,
   };
 }
