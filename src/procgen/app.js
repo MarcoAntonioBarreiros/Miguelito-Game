@@ -143,8 +143,10 @@ function loop(now) {
     sim.step(dt);
     renderer.render();
     platformVisuals.drawWorld(ctx);
+    sim.pseudomonasSiderophores.renderDeposits(ctx);
     sim.ecology.render(ctx);
     sim.beneficialInoculants.render(ctx);
+    sim.pseudomonasSiderophores.render(ctx);
     sim.azospirillumRootGrowth.render(ctx);
     sim.rhizobiumNodulation.render(ctx);
     sim.trichodermaColonies.render(ctx);
@@ -188,6 +190,7 @@ function loop(now) {
       const vigor = Math.round(sim.trichodermaColonies.vigorAverage * 100);
       const beneficialVigor = Math.round(sim.beneficialInoculants.vigorAverage * 100);
       const fixation = sim.rhizobiumNodulation.fixationRate.toFixed(1);
+      const ironRecovered = sim.pseudomonasSiderophores.ironRecovered.toFixed(1);
       debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
         + (info ? ` | ${info.primitive} | ${info.logic.difficultyTarget} | vão ${info.gap}px` : '')
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
@@ -195,6 +198,8 @@ function loop(now) {
         + `\nEstruturas AM: ${sim.mycorrhizaStructures.growingCount} crescendo / ${sim.mycorrhizaStructures.matureCount} maduras (${sim.mycorrhizaStructures.ladderCount} escadas, ${sim.mycorrhizaStructures.bridgeCount} pontes)`
         + `\nInoculantes: ${sim.beneficialInoculants.followerCount} seguindo / ${sim.beneficialInoculants.colonyCount} colônias / vigor médio ${beneficialVigor}%`
         + (sim.beneficialInoculants.colonySummary ? ` [${sim.beneficialInoculants.colonySummary}]` : '')
+        + `\nSideróforos: ${sim.pseudomonasSiderophores.freeCount} livres / ${sim.pseudomonasSiderophores.loadedCount} com Fe³⁺ / Fe recuperado ${ironRecovered} / ${sim.pseudomonasSiderophores.fungiLimitedCount} fungos limitados`
+        + `\nDepósitos Fe³⁺: ${sim.pseudomonasSiderophores.activeDepositCount}/${sim.pseudomonasSiderophores.depositCount} ativos / ${sim.pseudomonasSiderophores.activeColonyCount} colônias com reserva`
         + `\nRaízes laterais: ${sim.azospirillumRootGrowth.rootCount} totais / ${sim.azospirillumRootGrowth.growingCount} crescendo / ${sim.azospirillumRootGrowth.matureCount} maduras / ${sim.azospirillumRootGrowth.pausedCount} pausadas`
         + `\nNodulação: ${sim.rhizobiumNodulation.siteCount} sítios / ${sim.rhizobiumNodulation.matureCount} maduros / ${sim.rhizobiumNodulation.activeCount} ativos / FBN ${fixation}`
         + (sim.rhizobiumNodulation.incompatibleCount ? ` / ${sim.rhizobiumNodulation.incompatibleCount} sem hospedeiro` : '')
