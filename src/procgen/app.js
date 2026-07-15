@@ -140,6 +140,7 @@ function loop(now) {
     sim.step(dt);
     renderer.render();
     sim.ecology.render(ctx);
+    sim.trichodermaColonies.render(ctx);
     sim.trichoderma.render(ctx);
     sim.mycorrhiza.render(ctx);
     sim.goal.render(ctx);
@@ -159,7 +160,9 @@ function loop(now) {
 
     const player = sim.state.player;
     const abilities = [
-      player.exudates > 0 ? '🟢 E Exsudato' : null,
+      sim.trichodermaColonies.followerCount > 0
+        ? `🧫 E Inocular (${sim.trichodermaColonies.followerCount})`
+        : player.exudates > 0 ? '🟢 E Exsudato' : null,
       player.canDoubleJump ? '⬆⬆ Salto' : null,
       player.canDash ? '💨 Dash' : null,
       player.canPulse ? '💥 Pulso' : null,
@@ -170,12 +173,13 @@ function loop(now) {
     if (showDebug) {
       const logicIndex = currentLogicIndex();
       const info = levelData.debugInfo[logicIndex];
-      const vigor = Math.round(sim.trichoderma.vigorAverage * 100);
+      const vigor = Math.round(sim.trichodermaColonies.vigorAverage * 100);
       debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
         + (info ? ` | ${info.primitive} | ${info.logic.difficultyTarget} | vão ${info.gap}px` : '')
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
         + `\nMicorriza AM: ${sim.mycorrhiza.tipCount} pontas / ${sim.mycorrhiza.branchCount} ramos / ${sim.mycorrhiza.arbusculeCount} arbúsculos`
-        + `\nTrichoderma: ${sim.trichoderma.tipCount} pontas / ${sim.trichoderma.attackCount} alvos / vigor ${vigor}% (${sim.trichoderma.searchCount} em busca)`
+        + `\nTrichoderma: ${sim.trichodermaColonies.followerCount} seguindo / ${sim.trichodermaColonies.colonyCount} colônias / vigor médio ${vigor}%`
+        + `\nHifas de ataque: ${sim.trichoderma.tipCount} pontas / ${sim.trichoderma.attackCount} alvos / ${sim.trichoderma.searchCount} em busca`
         + `\nInterações: ${sim.gameplay.cloudCount} nuvens / ${sim.gameplay.biofilmCount} biofilmes`;
     }
 

@@ -22,30 +22,32 @@ function avoidHazards(state, tip) {
   return { x: fx, y: fy };
 }
 
-function byId(agents, id) {
+function byAgentId(agents, id) {
   return agents.find(agent => agent.id === id) || null;
 }
 
-export function createTrichodermaGrowth({ state, entities, ecology }) {
+export function createTrichodermaGrowth({ state, entities, ecology, colonies }) {
   const networks = new Map();
-  const detectionRadius = 430;
+  const detectionRadius = 540;
+  const naturalGerminationRadius = 190;
   const maxActiveNetworks = 6;
   let lastExhaustionToastAt = -Infinity;
 
-  function releaseHunter(network, continuation = 0) {
-    const hunter = byId(ecology.agents, network?.metadata?.hunterId);
-    if (!hunter) return;
-    hunter.hyphalAttack = null;
-    if ((hunter.recruitedUntil || 0) > state.time || continuation > 0) {
-      hunter.recruitedUntil = Math.max(hunter.recruitedUntil || 0, state.time + continuation);
-    }
+  function releaseColony(network, { reward = 0, cooldown = 1.4, stage = 'ready' } = {}) {
+    const colony = colonies.byId(network?.metadata?.colonyId);
+    if (!colony) return;
+    colony.activeTargetId = null;
+    colony.cooldownUntil = state.time + cooldown;
+    colony.vigor = clamp(colony.vigor + reward, 0, 1);
+    colony.exhausted = colony.vigor <= .015;
+    colony.stage = colony.exhausted ? 'exhausted' : stage;
   }
 
   function clear() {
-    for (const network of networks.values()) releaseHunter(network);
     networks.clear();
-    for (const agent of ecology.agents) {
-      if (agent.type === 'trichoderma') agent.hyphalAttack = null;
+    for (const colony of colonies.colonies) {
+      colony.activeTargetId = null;
+      colony.stage = colony.exhausted ? 'exhausted' : 'ready';
     }
     lastExhaustionToastAt = -Infinity;
   }
@@ -75,36 +77,52 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     ));
   }
 
-  function findNearestHunter(target) {
+  function findNearestColony(target) {
     let best = null;
-    let bestDistance = detectionRadius;
-    for (const agent of ecology.agents) {
-      if (agent.type !== 'trichoderma' || agent.hyphalAttack) continue;
-      const distance = Math.hypot(agent.x - target.x, agent.y - target.y);
-      const recruitedBonus = (agent.recruitedUntil || 0) > state.time ? .78 : 1;
-      const score = distance * recruitedBonus;
-      if (score < bestDistance) {
-        best = agent;
-        bestDistance = score;
+    let bestScore = Infinity;
+    for (const colony of colonies.colonies) {
+      if (colony.activeTargetId || colony.exhausted || colony.vigor <= .04) continue;
+      if (state.time < colony.cooldownUntil) continue;
+      const distance = Math.hypot(colony.x - target.x, colony.y - target.y);
+      if (distance > detectionRadius) continue;
+      const score = distance / (.72 + colony.vigor * .45);
+      if (score < bestScore) {
+        best = colony;
+        bestScore = score;
       }
     }
-    return best ? { hunter: best, distance: bestDistance } : null;
+    return best;
   }
 
-  function createAttack(target, hunter) {
-    if (!hunter || hunter.hyphalAttack || networks.has(target.id)) return false;
-    const recruited = (hunter.recruitedUntil || 0) > state.time;
-    const angle = Math.atan2(target.y - hunter.y, target.x - hunter.x);
+  function germinateNaturalColony(target) {
+    let best = null;
+    let bestDistance = naturalGerminationRadius;
+    for (const agent of ecology.agents) {
+      if (agent.type !== 'trichoderma' || agent.hyphalAttack) continue;
+      if ((agent.recruitedUntil || 0) > state.time) continue;
+      const distance = Math.hypot(agent.x - target.x, agent.y - target.y);
+      if (distance < bestDistance) {
+        best = agent;
+        bestDistance = distance;
+      }
+    }
+    if (!best) return null;
+    return colonies.inoculateNaturalAgent(best);
+  }
+
+  function createAttack(target, colony) {
+    if (!colony || colony.activeTargetId || networks.has(target.id) || colony.vigor <= .04) return false;
+    const angle = Math.atan2(target.y - colony.y, target.x - colony.x);
     const network = createHyphalNetwork({
       kind: 'trichoderma',
-      x: hunter.x,
-      y: hunter.y,
+      x: colony.x,
+      y: colony.y,
       angle,
       maxBranches: 22,
-      maxPoints: 560,
+      maxPoints: 620,
       metadata: {
         targetId: target.id,
-        hunterId: hunter.id,
+        colonyId: colony.id,
         contact: 0,
         lysis: 0,
         phase: Math.random() * TAU,
@@ -114,7 +132,6 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
         stalled: 0,
         contactLocked: false,
         stage: 'search',
-        vigor: recruited ? 1 : .68,
         lastPointCount: 0,
         lastTipCount: 1,
         fuelIntensity: 0,
@@ -122,10 +139,11 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     });
     network.germination = 1;
     networks.set(target.id, network);
-    hunter.hyphalAttack = target.id;
-    if (recruited) hunter.recruitedUntil = Math.max(hunter.recruitedUntil, state.time + 12);
+    colony.activeTargetId = target.id;
+    colony.stage = 'search';
+    colony.exhausted = false;
     state.discoveredMicrobes.add('trichoderma');
-    entities.burst(hunter.x, hunter.y, '#8df0a8', 18, 115);
+    entities.burst(colony.x, colony.y, '#8df0a8', 18, 115);
     return true;
   }
 
@@ -134,7 +152,7 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     network.metadata.aborted = true;
     network.active = false;
     network.fading = .9;
-    releaseHunter(network, 8);
+    releaseColony(network, { cooldown: 1.2, stage: 'ready' });
     if (target) target.trichoRetryAt = state.time + retryDelay;
   }
 
@@ -144,14 +162,21 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     network.metadata.stage = 'retracting';
     network.active = false;
     network.fading = .01;
-    releaseHunter(network, 6);
+    const colony = colonies.byId(network.metadata.colonyId);
+    if (colony) {
+      colony.vigor = 0;
+      colony.exhausted = true;
+      colony.stage = 'exhausted';
+      colony.activeTargetId = null;
+      colony.cooldownUntil = state.time + 2.2;
+    }
     if (target) target.trichoRetryAt = state.time + 2.2;
 
     const tip = [...network.tips].reverse().find(candidate => candidate.points.length) || network.tips[0];
     if (tip) entities.burst(tip.x, tip.y, '#8df0a8', 16, 80);
     if (state.time - lastExhaustionToastAt > 2.4) {
-      state.toast = 'Crescimento interrompido: o vigor do inoculante acabou antes do contato. Use outro gradiente de exsudatos.';
-      state.toastTime = 5.2;
+      state.toast = 'Colônia exaurida: a hifa não alcançou o alvo. Libere exsudatos junto à colônia ou à frente de crescimento para reativá-la.';
+      state.toastTime = 5.4;
       lastExhaustionToastAt = state.time;
     }
   }
@@ -164,7 +189,13 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     network.fading = .01;
     const index = ecology.agents.indexOf(target);
     if (index >= 0) ecology.agents.splice(index, 1);
-    releaseHunter(network, 18);
+    const colony = colonies.byId(network.metadata.colonyId);
+    if (colony) {
+      colony.kills += 1;
+      colony.vigor = clamp(colony.vigor + .14, 0, 1);
+      colony.exhausted = false;
+    }
+    releaseColony(network, { cooldown: 1.8, stage: 'ready' });
     state.player.soil += 1.8;
     state.player.hope += 2.6;
     if (Math.hypot(target.x - (state.player.x + 16), target.y - (state.player.y + 24)) < 260) {
@@ -172,7 +203,7 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     }
     entities.burst(target.x, target.y, '#8df0a8', 42, 230);
     entities.burst(target.x, target.y, '#ff8297', 24, 175);
-    state.toast = 'Micoparasitismo concluído: após o contato, o enovelamento e a lise prosseguiram autonomamente';
+    state.toast = 'Micoparasitismo concluído: a colônia recuperou 14% de vigor e permanece inoculada para novos alvos';
     state.toastTime = 4.8;
   }
 
@@ -185,71 +216,69 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     return best;
   }
 
-  function cloudFuelIntensity(network, hunter) {
+  function cloudFuelIntensity(network, colony) {
     const clouds = state.level.exudateClouds || [];
     if (!clouds.length) return 0;
-    const anchors = [hunter, ...network.tips.filter(tip => tip.active)];
+    const anchors = [colony, ...network.tips.filter(tip => tip.active)];
     let best = 0;
     for (const cloud of clouds) {
       const lifeFactor = clamp(cloud.life / Math.max(.1, cloud.maxLife || 10), 0, 1);
-      const range = Math.max(120, cloud.radius * 2.15);
+      const range = Math.max(125, cloud.radius * 2.15);
       for (const anchor of anchors) {
         const distance = Math.hypot(anchor.x - cloud.x, anchor.y - cloud.y);
         if (distance >= range) continue;
-        best = Math.max(best, (1 - distance / range) * (.55 + lifeFactor * .45));
+        best = Math.max(best, (1 - distance / range) * (.5 + lifeFactor * .5));
       }
     }
     return best;
   }
 
-  function updateVigor(network, hunter, target, dt) {
+  function updateVigor(network, colony, target, dt) {
     const metadata = network.metadata;
+    const fuel = cloudFuelIntensity(network, colony);
+    metadata.fuelIntensity = fuel;
+    colony.rechargeIntensity = Math.max(colony.rechargeIntensity || 0, fuel);
+
+    if (fuel > 0) colony.vigor = clamp(colony.vigor + dt * (.03 + fuel * .12), 0, 1);
     if (metadata.contactLocked) {
-      metadata.vigor = 1;
-      metadata.fuelIntensity = 0;
       metadata.lastPointCount = network.pointCount;
       metadata.lastTipCount = network.tips.length;
       return;
-    }
-
-    const fuel = cloudFuelIntensity(network, hunter);
-    metadata.fuelIntensity = fuel;
-    if (fuel > 0) {
-      metadata.vigor += dt * (.09 + fuel * .28);
-      hunter.recruitedUntil = Math.max(hunter.recruitedUntil || 0, state.time + 4);
     }
 
     const pointDelta = Math.max(0, network.pointCount - metadata.lastPointCount);
     const tipDelta = Math.max(0, network.tips.length - metadata.lastTipCount);
     const activeTips = network.tips.filter(tip => tip.active).length;
     const distance = nearestTipDistance(network, target);
-    const distanceFactor = distance > 330 ? 1 : distance > 180 ? .78 : .55;
-    const recruitedFactor = (hunter.recruitedUntil || 0) > state.time ? .86 : 1;
+    const distanceFactor = distance > 330 ? 1.22 : distance > 180 ? 1 : .82;
     const drain = (
-      pointDelta * .00155
-      + tipDelta * .024
-      + activeTips * dt * .0032
-    ) * distanceFactor * recruitedFactor;
+      pointDelta * .0042
+      + tipDelta * .044
+      + activeTips * dt * .0065
+    ) * distanceFactor;
 
-    metadata.vigor = clamp(metadata.vigor - drain, 0, 1);
+    colony.vigor = clamp(colony.vigor - drain, 0, 1);
     metadata.lastPointCount = network.pointCount;
     metadata.lastTipCount = network.tips.length;
-    if (metadata.vigor <= 0) exhaustAttack(network, target);
+    if (colony.vigor <= 0) exhaustAttack(network, target);
   }
 
   function lockContact(network, target) {
     if (network.metadata.contactLocked) return;
     network.metadata.contactLocked = true;
     network.metadata.stage = 'coil';
-    network.metadata.vigor = 1;
     network.metadata.contact = Math.max(network.metadata.contact, .08);
     network.metadata.stalled = 0;
     network.maxPoints = Math.max(network.maxPoints, network.pointCount + 280);
+    const colony = colonies.byId(network.metadata.colonyId);
+    if (colony) colony.stage = 'coil';
     entities.burst(target.x, target.y, '#baf66f', 12, 90);
   }
 
   function advanceAutonomousLysis(network, target, dt) {
     if (!network.metadata.contactLocked) return;
+    const colony = colonies.byId(network.metadata.colonyId);
+    if (colony) colony.stage = 'lysis';
     target.vx *= Math.pow(.06, dt);
     target.vy *= Math.pow(.06, dt);
 
@@ -287,13 +316,13 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
   }
 
   function updateAttack(network, dt) {
-    const target = byId(ecology.agents, network.metadata.targetId);
-    const hunter = byId(ecology.agents, network.metadata.hunterId);
+    const target = byAgentId(ecology.agents, network.metadata.targetId);
+    const colony = colonies.byId(network.metadata.colonyId);
     if (!target) {
       abortAttack(network, null, 0);
       return;
     }
-    if (!hunter) {
+    if (!colony) {
       abortAttack(network, target, 1.5);
       return;
     }
@@ -301,25 +330,17 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     const cameraCenter = state.cameraX + W / 2;
     if (Math.abs(target.x - cameraCenter) > W * 1.25 && !network.metadata.contactLocked) return;
 
-    const dx = target.x - hunter.x;
-    const dy = target.y - hunter.y;
-    const hunterDistance = Math.max(1, Math.hypot(dx, dy));
-    hunter.vx += dx / hunterDistance * 46 * dt;
-    hunter.vy += dy / hunterDistance * 46 * dt;
-    hunter.homeX += dx / hunterDistance * 30 * dt;
-    hunter.homeY += dy / hunterDistance * 24 * dt;
-
     const closestDistance = nearestTipDistance(network, target);
     const branchScale = network.metadata.contactLocked
       ? 1.45
       : closestDistance > 300
-        ? .55
+        ? .52
         : closestDistance > 175
-          ? .78
+          ? .76
           : 1.12;
     const growthScale = network.metadata.contactLocked
       ? 1
-      : .48 + network.metadata.vigor * .72;
+      : .34 + colony.vigor * .82;
 
     updateHyphalNetwork(network, dt, {
       time: state.time,
@@ -328,15 +349,15 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
       branchScale,
       coilDaughters: 3,
       targetProvider: () => {
-        const currentTarget = byId(ecology.agents, network.metadata.targetId);
+        const currentTarget = byAgentId(ecology.agents, network.metadata.targetId);
         if (!currentTarget) return null;
         return {
           id: currentTarget.id,
           x: currentTarget.x,
           y: currentTarget.y,
           kind: 'fungal-target',
-          range: 720,
-          strength: 1.28,
+          range: 760,
+          strength: 1.32,
           contactRadius: 48,
           orbitRadius: 48,
         };
@@ -350,19 +371,15 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
         return activeSearchTips < 8 && tip.depth < 3;
       },
       onFirstContact: (currentNetwork, tip, contactTarget) => lockContact(currentNetwork, contactTarget),
-      onContact: currentNetwork => {
-        currentNetwork.metadata.stalled = 0;
-      },
+      onContact: currentNetwork => { currentNetwork.metadata.stalled = 0; },
       onBudgetExhausted: currentNetwork => {
         if (!currentNetwork.metadata.contactLocked) exhaustAttack(currentNetwork, target);
       },
     });
 
     if (network.metadata.exhausted || network.metadata.aborted) return;
-
-    updateVigor(network, hunter, target, dt);
+    updateVigor(network, colony, target, dt);
     if (network.metadata.exhausted) return;
-
     advanceAutonomousLysis(network, target, dt);
 
     const activeTips = network.tips.filter(tip => tip.active).length;
@@ -372,7 +389,6 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     } else if (!network.metadata.contactLocked) {
       network.metadata.stalled = Math.max(0, network.metadata.stalled - dt * .5);
     }
-
     if (network.metadata.lysis >= 1) completeAttack(network, target);
   }
 
@@ -386,8 +402,9 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
       if (activeCount >= maxActiveNetworks) break;
       if (networks.has(target.id) || (target.trichoRetryAt || 0) > state.time) continue;
       if (Math.abs(target.x - cameraCenter) > W * .9) continue;
-      const found = findNearestHunter(target);
-      if (found && createAttack(target, found.hunter)) activeCount++;
+      let colony = findNearestColony(target);
+      if (!colony) colony = germinateNaturalColony(target);
+      if (colony && createAttack(target, colony)) activeCount++;
     }
 
     for (const [id, network] of [...networks]) {
@@ -406,7 +423,7 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
   }
 
   function renderTargetStatus(ctx, network) {
-    const target = byId(ecology.agents, network.metadata.targetId);
+    const target = byAgentId(ecology.agents, network.metadata.targetId);
     if (!target) return;
     const contact = network.metadata.contact;
     const lysis = network.metadata.lysis;
@@ -433,50 +450,19 @@ export function createTrichodermaGrowth({ state, entities, ecology }) {
     ctx.restore();
   }
 
-  function renderVigor(ctx, network) {
-    if (network.metadata.contactLocked || network.metadata.completed || network.metadata.exhausted) return;
-    const hunter = byId(ecology.agents, network.metadata.hunterId);
-    if (!hunter) return;
-    const vigor = clamp(network.metadata.vigor, 0, 1);
-    const width = 46;
-    const x = hunter.x - width / 2;
-    const y = hunter.y - 31;
-    ctx.save();
-    ctx.translate(-state.cameraX, 0);
-    ctx.fillStyle = 'rgba(3,18,24,.78)';
-    ctx.fillRect(x - 2, y - 2, width + 4, 8);
-    ctx.fillStyle = vigor > .55 ? '#8df0a8' : vigor > .25 ? '#ffd36f' : '#ff8297';
-    ctx.fillRect(x, y, width * vigor, 4);
-    if (network.metadata.fuelIntensity > .08) {
-      ctx.strokeStyle = 'rgba(214,255,148,.82)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x - 1, y - 1, width + 2, 6);
-    }
-    ctx.font = '700 9px Inter,system-ui';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#effff5';
-    ctx.fillText('vigor', hunter.x, y - 4);
-    ctx.restore();
-  }
-
   function render(ctx) {
     for (const network of networks.values()) {
       renderHyphalNetwork(ctx, network, state, {
         color: '#8df0a8', core: '#eaffef', tip: '#ffffff', shadowBlur: 14,
       });
       renderTargetStatus(ctx, network);
-      renderVigor(ctx, network);
     }
   }
 
   return {
     get attackCount() { return activeNetworkCount(); },
     get searchCount() { return searchNetworks().length; },
-    get vigorAverage() {
-      const searching = searchNetworks();
-      if (!searching.length) return 1;
-      return searching.reduce((sum, network) => sum + network.metadata.vigor, 0) / searching.length;
-    },
+    get vigorAverage() { return colonies.vigorAverage; },
     get tipCount() {
       return [...networks.values()].reduce((sum, network) => sum + network.tips.filter(tip => tip.active).length, 0);
     },
