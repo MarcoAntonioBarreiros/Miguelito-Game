@@ -4,6 +4,127 @@ import { generatePrimitives } from './primitives.js';
 import { generateGeometry } from './geometry.js';
 import { validateChunk } from './agents.js';
 
+const TAU = Math.PI * 2;
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+function traversalLimits(chunk, primitive, index) {
+  const requiresDouble = primitive.requires.includes('doubleJump');
+  const requiresDash = primitive.requires.includes('dash');
+  const isLearning = chunk.isSkillIntro || chunk.allyId || chunk.isCheckpoint;
+
+  if (index < 4) {
+    return { minGap: 42, maxGap: 92, maxRise: 28, maxDrop: 58, minWidth: 175 };
+  }
+  if (isLearning) {
+    return { minGap: 45, maxGap: 108, maxRise: 38, maxDrop: 68, minWidth: 185 };
+  }
+  if (requiresDash) {
+    return {
+      minGap: 100,
+      maxGap: chunk.difficultyTarget === 'hard' ? 288 : 246,
+      maxRise: 48,
+      maxDrop: 92,
+      minWidth: 118,
+    };
+  }
+  if (requiresDouble) {
+    return {
+      minGap: 78,
+      maxGap: chunk.difficultyTarget === 'hard' ? 238 : 205,
+      maxRise: 112,
+      maxDrop: 142,
+      minWidth: 118,
+    };
+  }
+  return {
+    minGap: 45,
+    maxGap: chunk.difficultyTarget === 'hard' ? 142 : 122,
+    maxRise: chunk.difficultyTarget === 'hard' ? 58 : 46,
+    maxDrop: chunk.difficultyTarget === 'hard' ? 96 : 82,
+    minWidth: chunk.difficultyTarget === 'hard' ? 102 : 132,
+  };
+}
+
+function stabilizeGeometry(candidate, previous, chunk, primitive, index) {
+  const limits = traversalLimits(chunk, primitive, index);
+  const previousEnd = previous.x + previous.w;
+  const rawGap = candidate.x - previousEnd;
+  const rawDeltaY = candidate.y - previous.y;
+
+  candidate.x = previousEnd + clamp(rawGap, limits.minGap, limits.maxGap);
+  candidate.y = previous.y + clamp(rawDeltaY, -limits.maxRise, limits.maxDrop);
+  candidate.y = clamp(candidate.y, 235, 565);
+  candidate.w = Math.max(candidate.w, limits.minWidth);
+  candidate.h = clamp(candidate.h, 42, 88);
+  candidate.logicIndex = index;
+  return candidate;
+}
+
+function isForgivingChunk(chunk, index) {
+  return index < 4 || chunk.isSkillIntro || chunk.allyId || chunk.isCheckpoint || chunk.difficultyTarget !== 'hard';
+}
+
+function validated(candidate, previous, primitive, chunk, index) {
+  if (!validateChunk(previous, candidate, primitive, 'normal')) return false;
+  if (isForgivingChunk(chunk, index) && !validateChunk(previous, candidate, primitive, 'conservative')) return false;
+  return true;
+}
+
+function createSafeFallback(previous, chunk, primitives, rnd, index) {
+  const basic = primitives.find(p => p.id === 'running-jump-short')
+    || primitives.find(p => p.requires.length === 0)
+    || primitives[0];
+
+  const baseDelta = (rnd() - .5) * (index < 4 ? 24 : 42);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const gap = Math.max(28, (index < 4 ? 82 : 102) - attempt * 9);
+    const candidate = {
+      x: previous.x + previous.w + gap,
+      y: clamp(previous.y + baseDelta * (1 - attempt / 10), 250, 555),
+      w: 185 + rnd() * 55,
+      h: 48 + rnd() * 28,
+      type: rnd() > .25 ? 'root' : 'soil',
+      logicIndex: index,
+      repaired: true,
+    };
+    if (validated(candidate, previous, basic, chunk, index)) return { platform: candidate, primitive: basic };
+  }
+
+  return {
+    platform: {
+      x: previous.x + previous.w + 24,
+      y: previous.y,
+      w: 230,
+      h: 58,
+      type: 'root',
+      logicIndex: index,
+      repaired: true,
+    },
+    primitive: basic,
+  };
+}
+
+function createRecoveryRoots(previous, next, chunk, rnd, index) {
+  const previousEnd = previous.x + previous.w;
+  const gap = next.x - previousEnd;
+  const ordinaryTraversal = !chunk.requires.includes('doubleJump') && !chunk.requires.includes('dash');
+  const shouldAdd = (ordinaryTraversal && gap > 104) || index < 3;
+  if (!shouldAdd || gap < 82) return [];
+
+  const width = clamp(gap * .52, 82, 138);
+  const midpoint = previousEnd + gap * (.48 + (rnd() - .5) * .08);
+  const top = clamp(Math.max(previous.y, next.y) + 92 + rnd() * 22, 535, 620);
+  return [{
+    x: midpoint - width / 2,
+    y: top,
+    w: width,
+    h: 34,
+    type: 'root',
+    recovery: true,
+    logicIndex: index,
+  }];
+}
+
 export function generateLevel(seedString) {
   const rnd = createRandom(seedString);
   const primitives = generatePrimitives();
@@ -16,127 +137,80 @@ export function generateLevel(seedString) {
   const enemies = [];
   const hazards = [];
   const crystals = [];
-  
-  // Starting platform
-  let prevPlatform = { x: 50, y: 500, w: 200, h: 100, type: 'root' };
+
+  let prevPlatform = { x: 50, y: 500, w: 240, h: 100, type: 'root', logicIndex: -1 };
   platforms.push(prevPlatform);
 
   for (let i = 0; i < logic.length; i++) {
     const chunk = logic[i];
-    
-    // Select valid primitives for this chunk
-    // Step 1: Get all primitives whose requirements are satisfied by current abilities
-    const currentAbilities = chunk.requires.concat(
-      chunk.isSkillIntro ? chunk.requires : []
-    );
-    
     let validPrims;
-    
-    if (chunk.requires.length > 0) {
-      // When chunk requires a skill, ONLY use primitives that USE that skill
-      validPrims = primitives.filter(p => 
-        p.requires.length > 0 && p.requires.every(r => chunk.requires.includes(r))
-      );
-    } else {
-      // No skill required — use basic primitives only (no special abilities)
-      validPrims = primitives.filter(p => p.requires.length === 0);
-    }
 
-    if (validPrims.length === 0) {
-      // Fallback: use basic primitives
+    if (chunk.requires.length > 0) {
+      validPrims = primitives.filter(p => p.requires.length > 0 && p.requires.every(r => chunk.requires.includes(r)));
+    } else {
       validPrims = primitives.filter(p => p.requires.length === 0);
     }
+    if (validPrims.length === 0) validPrims = primitives.filter(p => p.requires.length === 0);
 
     let attempts = 0;
     let nextPlatform = null;
     let accepted = false;
     let prim = null;
 
-    while (attempts < 5 && !accepted) {
-      // Pick a primitive
+    while (attempts < 12 && !accepted) {
       prim = validPrims[Math.floor(rnd() * validPrims.length)];
-      
-      // Generate geometry
-      nextPlatform = generateGeometry(chunk, prevPlatform, prim, rnd);
-
-      // Validate: only require normal agent to pass
-      accepted = validateChunk(prevPlatform, nextPlatform, prim, 'normal');
-      
-      // If normal fails, try a geometric safety check as fallback
-      if (!accepted) {
-        const dx = nextPlatform.x - (prevPlatform.x + prevPlatform.w);
-        const dy = nextPlatform.y - prevPlatform.y;
-        const maxDx = Math.abs(prim.displacement.x) * 1.1;
-        const maxDy = Math.abs(prim.displacement.y) * 1.2;
-        // Accept if gap is within 80% of primitive's known displacement
-        if (dx >= 0 && dx < maxDx * 0.8 && Math.abs(dy) < maxDy * 1.5) {
-          accepted = true;
-        }
-      }
-
+      nextPlatform = stabilizeGeometry(generateGeometry(chunk, prevPlatform, prim, rnd), prevPlatform, chunk, prim, i);
+      accepted = validated(nextPlatform, prevPlatform, prim, chunk, i);
       attempts++;
     }
 
     if (!accepted) {
-      // Fallback: create a reachable platform with height variation
-      const fallbackDy = (rnd() - 0.5) * 80;
-      let fallbackY = prevPlatform.y + fallbackDy;
-      // Keep within visible area
-      fallbackY = Math.max(230, Math.min(560, fallbackY));
-      nextPlatform = {
-        x: prevPlatform.x + prevPlatform.w + 40 + rnd() * 60,
-        y: fallbackY,
-        w: 90 + rnd() * 60,
-        h: 40 + rnd() * 40,
-        type: 'root'
-      };
-      prim = primitives[0];
+      const fallback = createSafeFallback(prevPlatform, chunk, primitives, rnd, i);
+      nextPlatform = fallback.platform;
+      prim = fallback.primitive;
+      accepted = true;
     }
 
     if (chunk.isCheckpoint) {
-      nextPlatform.w = Math.max(nextPlatform.w, 150); // Ensure enough space
+      nextPlatform.w = Math.max(nextPlatform.w, 180);
       checkpoints.push({ x: nextPlatform.x + nextPlatform.w / 2, y: nextPlatform.y - 10, active: false });
     }
 
     if (chunk.allyId) {
-      nextPlatform.w = Math.max(nextPlatform.w, 150);
+      nextPlatform.w = Math.max(nextPlatform.w, 190);
       let desc = '';
       let name = '';
-      if (chunk.allyId === 'azo') { 
-        name = 'Ari, o Azospirillum'; 
-        desc = 'Azospirillum está associado ao desenvolvimento radicular. No jogo, ele libera o Impulso Radicular: pressione salto novamente no ar.'; 
+      if (chunk.allyId === 'azo') {
+        name = 'Ari, o Azospirillum';
+        desc = 'Azospirillum está associado ao desenvolvimento radicular. No jogo, ele libera o Impulso Radicular: pressione salto novamente no ar.';
       }
-      if (chunk.allyId === 'myco') { 
-        name = 'Mira, a Micorriza'; 
-        desc = 'As hifas ampliam o volume de solo explorado e ajudam a transportar fósforo e água até a raiz. No jogo, pressione Shift para o Impulso de Hifa.'; 
+      if (chunk.allyId === 'myco') {
+        name = 'Mira, a Micorriza';
+        desc = 'As hifas ampliam o volume de solo explorado e ajudam a transportar fósforo e água até a raiz. No jogo, pressione Shift para o Impulso de Hifa.';
       }
-      if (chunk.allyId === 'phos') { 
-        name = 'Sol, a Solubilizadora'; 
-        desc = 'A comunidade concentra secreções junto ao mineral e libera parte do fósforo antes inacessível. Pressione K para o Pulso Mineral.'; 
+      if (chunk.allyId === 'phos') {
+        name = 'Sol, a Solubilizadora';
+        desc = 'A comunidade concentra secreções junto ao mineral e libera parte do fósforo antes inacessível. Pressione K para o Pulso Mineral.';
       }
       allies.push({ id: chunk.allyId, x: nextPlatform.x + nextPlatform.w / 2, y: nextPlatform.y - 40, r: 28, taken: false, name, desc });
     }
 
-    if (chunk.hasEnemy && !chunk.requires.includes('pulse')) {
-      let ew = 42;
-      let eh = 38;
-      if (nextPlatform.w > 120) {
-        enemies.push({
-          x: nextPlatform.x + nextPlatform.w / 2,
-          y: nextPlatform.y - eh - 10,
-          w: ew,
-          h: eh,
-          vx: 45 + (rnd() * 20),
-          left: nextPlatform.x + 20,
-          right: nextPlatform.x + nextPlatform.w - ew - 20,
-          alive: true
-        });
-      }
+    if (chunk.hasEnemy && !chunk.requires.includes('pulse') && nextPlatform.w > 130) {
+      const ew = 42;
+      const eh = 38;
+      enemies.push({
+        x: nextPlatform.x + nextPlatform.w / 2,
+        y: nextPlatform.y - eh - 10,
+        w: ew,
+        h: eh,
+        vx: 45 + rnd() * 20,
+        left: nextPlatform.x + 20,
+        right: nextPlatform.x + nextPlatform.w - ew - 20,
+        alive: true,
+      });
     }
 
     if (chunk.requires.includes('pulse')) {
-      // Place crystal as a wall barrier at the right edge of the platform
-      // Player must use Pulse K to break through before advancing
       const cw = 56;
       const ch = 110;
       crystals.push({
@@ -145,37 +219,31 @@ export function generateLevel(seedString) {
         w: cw,
         h: ch,
         hp: 1,
-        broken: false
+        broken: false,
       });
     }
 
-    platforms.push(nextPlatform);
+    const recoveryRoots = createRecoveryRoots(prevPlatform, nextPlatform, chunk, rnd, i);
+    platforms.push(...recoveryRoots, nextPlatform);
     debugInfo.push({
       index: i,
       logic: chunk,
       primitive: prim.id,
-      repairs: attempts - (accepted ? 1 : 0),
-      accepted: accepted
+      repairs: attempts,
+      accepted,
+      recoveryRoots: recoveryRoots.length,
+      gap: Math.round(nextPlatform.x - (prevPlatform.x + prevPlatform.w)),
     });
-
     prevPlatform = nextPlatform;
   }
 
-  const finalWidth = prevPlatform.x + prevPlatform.w + 1000; // Extra margin
-
-  // Piso de espinhos contínuo
+  const finalWidth = prevPlatform.x + prevPlatform.w + 1000;
   const hazardWidth = 500;
   const numHazards = Math.ceil(finalWidth / hazardWidth);
   for (let i = 0; i < numHazards; i++) {
-    hazards.push({
-      x: i * hazardWidth,
-      y: 674,
-      w: hazardWidth,
-      h: 46
-    });
+    hazards.push({ x: i * hazardWidth, y: 674, w: hazardWidth, h: 46 });
   }
 
-  // Generate background elements scaling with finalWidth
   const rootSpacing = 70;
   const numRoots = Math.ceil(finalWidth / rootSpacing);
   const roots = Array.from({ length: numRoots }, (_, i) => ({
@@ -187,31 +255,28 @@ export function generateLevel(seedString) {
     layer: rnd(),
   }));
 
-  const numSpores = Math.min(400, Math.ceil(finalWidth / 25)); // Cap to avoid lag
+  const numSpores = Math.min(400, Math.ceil(finalWidth / 25));
   const spores = Array.from({ length: numSpores }, () => ({
     x: rnd() * finalWidth,
     y: 90 + rnd() * 570,
     r: .7 + rnd() * 2.2,
     s: .2 + rnd() * .7,
-    p: rnd() * 6.28
+    p: rnd() * TAU,
   }));
 
   const lastPlat = platforms[platforms.length - 1];
   const endX = lastPlat.x + lastPlat.w + 500;
-
-  // Generate exudates (collectible green orbs) across platforms
   const exudates = [];
   for (let i = 2; i < platforms.length; i++) {
-    if (rnd() < 0.35) { // ~35% chance per platform
-      const plat = platforms[i];
-      exudates.push({
-        x: plat.x + 30 + rnd() * (plat.w - 60),
-        y: plat.y - 25 - rnd() * 15,
-        taken: false
-      });
-    }
+    const plat = platforms[i];
+    if (plat.recovery || plat.w < 75 || rnd() >= .35) continue;
+    exudates.push({
+      x: plat.x + 30 + rnd() * Math.max(1, plat.w - 60),
+      y: plat.y - 25 - rnd() * 15,
+      taken: false,
+    });
   }
-  
+
   return {
     platforms,
     hazards,
@@ -226,7 +291,7 @@ export function generateLevel(seedString) {
     pulses: [],
     debugInfo,
     primitives,
-    endX: endX,
-    cameraMaxX: endX - 1000
+    endX,
+    cameraMaxX: Math.max(0, endX - 1000),
   };
 }
