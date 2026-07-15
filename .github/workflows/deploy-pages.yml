@@ -27,18 +27,19 @@ jobs:
         with:
           enablement: true
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Build procedural standalone version
-        run: node scripts/build.cjs
+      - name: Stage procedural site
+        run: |
+          rm -rf site
+          mkdir -p site
+          cp index.html site/index.html
+          cp procgen.html site/procgen.html
+          cp -R src site/src
+          touch site/.nojekyll
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: site
 
   deploy:
     environment:
