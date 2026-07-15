@@ -58,7 +58,7 @@ export function createHyphalNetwork({ kind, x, y, angle = -.2, seed = Math.rando
     tips: [], contacts: [], enzymes: [], fragments: [], germination: 0, pointCount: 0,
     maxBranches: maxBranches ?? (kind === 'trichoderma' ? 24 : 18),
     maxPoints: maxPoints ?? (kind === 'trichoderma' ? 560 : 430),
-    active: true, fading: 0, metadata,
+    active: true, fading: 0, exhausted: false, exhaustionNotified: false, metadata,
   };
   network.tips.push(createHyphalTip({ x, y, angle, depth: 0, seed }));
   return network;
@@ -87,6 +87,16 @@ function maybeBranch(network, tip, profile, branchScale = 1) {
   spawnBranch(network, tip, tip.angle + side * split, tip.mode);
 }
 
+function exhaustPointBudget(network, options) {
+  if (network.exhausted) return;
+  network.exhausted = true;
+  for (const tip of network.tips) tip.active = false;
+  if (!network.exhaustionNotified) {
+    network.exhaustionNotified = true;
+    options.onBudgetExhausted?.(network);
+  }
+}
+
 export function updateHyphalNetwork(network, dt, options = {}) {
   if (!network.active) return;
   const profile = network.profile;
@@ -97,81 +107,93 @@ export function updateHyphalNetwork(network, dt, options = {}) {
   const targetProvider = options.targetProvider || (() => null);
   const avoidanceProvider = options.avoidanceProvider || (() => ({ x: 0, y: 0 }));
 
-  for (const tip of [...network.tips]) {
-    if (!tip.active || network.pointCount >= network.maxPoints) continue;
-    tip.age += dt;
-    const target = targetProvider(tip, network);
-    const noise = smoothHyphalNoise(tip.x, tip.y, time, tip.seed);
-    let desired = tip.angle + noise * profile.noise;
-    let targetDistance = Infinity;
-    let direct = tip.angle;
+  if (network.pointCount >= network.maxPoints) exhaustPointBudget(network, options);
 
-    if (target) {
-      const dx = target.x - tip.x;
-      const dy = target.y - tip.y;
-      targetDistance = Math.max(1, Math.hypot(dx, dy));
-      direct = Math.atan2(dy, dx);
-      if (tip.mode === 'coil' && profile.enableCoil) {
-        const orbitRadius = target.orbitRadius || profile.coilRadius;
-        const orbit = clamp(1 - targetDistance / Math.max(1, orbitRadius * 1.45), 0, 1);
-        const tangent = direct + tip.orbitSide * Math.PI * .5;
-        desired += angleDelta(desired, tangent) * profile.coilSteer * (.3 + orbit * .7);
-      } else {
-        const range = target.range || profile.tropismRange;
-        const strength = clamp(1 - targetDistance / range, profile.tropismMin, profile.tropismMax) * (target.strength || 1);
-        desired += angleDelta(desired, direct) * strength;
+  if (!network.exhausted) {
+    for (const tip of [...network.tips]) {
+      if (!tip.active) continue;
+      if (network.pointCount >= network.maxPoints) {
+        exhaustPointBudget(network, options);
+        break;
       }
-    }
 
-    const avoid = avoidanceProvider(tip, network) || { x: 0, y: 0 };
-    if (Math.abs(avoid.x) + Math.abs(avoid.y) > .001) {
-      desired += angleDelta(desired, Math.atan2(avoid.y, avoid.x)) * (options.avoidanceStrength ?? .72);
-    }
+      tip.age += dt;
+      const target = targetProvider(tip, network);
+      const noise = smoothHyphalNoise(tip.x, tip.y, time, tip.seed);
+      let desired = tip.angle + noise * profile.noise;
+      let targetDistance = Infinity;
+      let direct = tip.angle;
 
-    tip.angle += angleDelta(tip.angle, desired) * clamp(dt * profile.steer, 0, 1);
-    const baseSpeed = tip.depth === 0 ? profile.speed : Math.max(12, profile.childSpeed - tip.depth * 1.8);
-    const coilScale = tip.mode === 'coil' ? profile.coilSpeedScale : 1;
-    const proximityScale = target ? 1 + clamp(1 - targetDistance / 190, 0, 1) * .18 : 1;
-    const step = baseSpeed * growthScale * coilScale * proximityScale * dt;
-    tip.x += Math.cos(tip.angle) * step;
-    tip.y += Math.sin(tip.angle) * step;
-    tip.y = clamp(tip.y, bounds.minY, bounds.maxY);
-    tip.totalDistance += step;
-    tip.distanceSincePoint += step;
-
-    if (tip.distanceSincePoint >= profile.pointSpacing) {
-      tip.distanceSincePoint = 0;
-      tip.points.push({ x: tip.x, y: tip.y, alive: 1 });
-      network.pointCount++;
-      options.onPoint?.(network, tip);
-    }
-
-    if (target) {
-      const contactRadius = target.contactRadius || profile.contactRadius;
-      if (targetDistance < contactRadius) {
-        if (!tip.contact) {
-          tip.contact = true;
-          network.contacts.push({ x: target.x, y: target.y, life: 1, seed: tip.seed, kind: target.kind, targetId: target.id });
-          options.onFirstContact?.(network, tip, target);
+      if (target) {
+        const dx = target.x - tip.x;
+        const dy = target.y - tip.y;
+        targetDistance = Math.max(1, Math.hypot(dx, dy));
+        direct = Math.atan2(dy, dx);
+        if (tip.mode === 'coil' && profile.enableCoil) {
+          const orbitRadius = target.orbitRadius || profile.coilRadius;
+          const orbit = clamp(1 - targetDistance / Math.max(1, orbitRadius * 1.45), 0, 1);
+          const tangent = direct + tip.orbitSide * Math.PI * .5;
+          desired += angleDelta(desired, tangent) * profile.coilSteer * (.3 + orbit * .7);
+        } else {
+          const range = target.range || profile.tropismRange;
+          const strength = clamp(1 - targetDistance / range, profile.tropismMin, profile.tropismMax) * (target.strength || 1);
+          desired += angleDelta(desired, direct) * strength;
         }
-        if (profile.enableCoil && tip.mode !== 'coil') {
-          tip.mode = 'coil';
-          tip.targetId = target.id ?? tip.targetId;
-          tip.orbitSide = Math.random() < .5 ? -1 : 1;
-          const daughters = options.coilDaughters ?? 2;
-          for (let i = 0; i < daughters; i++) {
-            const child = spawnBranch(network, tip, tip.angle + (i - (daughters - 1) / 2) * .52, 'coil');
-            if (child) child.targetId = tip.targetId;
+      }
+
+      const avoid = avoidanceProvider(tip, network) || { x: 0, y: 0 };
+      if (Math.abs(avoid.x) + Math.abs(avoid.y) > .001) {
+        desired += angleDelta(desired, Math.atan2(avoid.y, avoid.x)) * (options.avoidanceStrength ?? .72);
+      }
+
+      tip.angle += angleDelta(tip.angle, desired) * clamp(dt * profile.steer, 0, 1);
+      const baseSpeed = tip.depth === 0 ? profile.speed : Math.max(12, profile.childSpeed - tip.depth * 1.8);
+      const coilScale = tip.mode === 'coil' ? profile.coilSpeedScale : 1;
+      const proximityScale = target ? 1 + clamp(1 - targetDistance / 190, 0, 1) * .18 : 1;
+      const step = baseSpeed * growthScale * coilScale * proximityScale * dt;
+      tip.x += Math.cos(tip.angle) * step;
+      tip.y += Math.sin(tip.angle) * step;
+      tip.y = clamp(tip.y, bounds.minY, bounds.maxY);
+      tip.totalDistance += step;
+      tip.distanceSincePoint += step;
+
+      if (tip.distanceSincePoint >= profile.pointSpacing) {
+        tip.distanceSincePoint = 0;
+        tip.points.push({ x: tip.x, y: tip.y, alive: 1 });
+        network.pointCount++;
+        options.onPoint?.(network, tip);
+      }
+
+      if (target) {
+        const contactRadius = target.contactRadius || profile.contactRadius;
+        if (targetDistance < contactRadius) {
+          if (!tip.contact) {
+            tip.contact = true;
+            network.contacts.push({ x: target.x, y: target.y, life: 1, seed: tip.seed, kind: target.kind, targetId: target.id });
+            options.onFirstContact?.(network, tip, target);
           }
+          if (profile.enableCoil && tip.mode !== 'coil') {
+            tip.mode = 'coil';
+            tip.targetId = target.id ?? tip.targetId;
+            tip.orbitSide = Math.random() < .5 ? -1 : 1;
+            const daughters = options.coilDaughters ?? 2;
+            for (let i = 0; i < daughters; i++) {
+              const child = spawnBranch(network, tip, tip.angle + (i - (daughters - 1) / 2) * .52, 'coil');
+              if (child) child.targetId = tip.targetId;
+            }
+          }
+          if (tip.mode === 'coil') tip.coilTurns += Math.abs(angleDelta(tip.angle, direct)) * dt;
+          options.onContact?.(network, tip, target, dt);
         }
-        if (tip.mode === 'coil') tip.coilTurns += Math.abs(angleDelta(tip.angle, direct)) * dt;
-        options.onContact?.(network, tip, target, dt);
       }
-    }
 
-    maybeBranch(network, tip, profile, tip.mode === 'coil' ? branchScale * 1.65 : branchScale);
-    if (tip.x < bounds.minX || tip.x > bounds.maxX || tip.y <= bounds.minY || tip.y >= bounds.maxY) tip.active = false;
-    if (tip.points.length > 760) tip.active = false;
+      const canBranch = options.canBranch
+        ? options.canBranch(network, tip, target, targetDistance)
+        : true;
+      if (canBranch) maybeBranch(network, tip, profile, tip.mode === 'coil' ? branchScale * 1.65 : branchScale);
+      if (tip.x < bounds.minX || tip.x > bounds.maxX || tip.y <= bounds.minY || tip.y >= bounds.maxY) tip.active = false;
+      if (tip.points.length > 760) tip.active = false;
+    }
   }
 
   for (const contact of network.contacts) contact.life = Math.max(0, contact.life - dt * .12);
