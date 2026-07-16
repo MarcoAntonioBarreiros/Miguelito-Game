@@ -18,6 +18,10 @@ export function isHardReloadShortcut(event) {
     || (event.code === 'KeyR' && commandKey && event.shiftKey);
 }
 
+export function isTutorialAdvanceShortcut(event) {
+  return event.code === 'Enter' && !event.repeat;
+}
+
 function isReloadShortcut(event) {
   return event.code === 'F5'
     || (event.code === 'KeyR' && Boolean(event.ctrlKey || event.metaKey));
@@ -436,10 +440,8 @@ export function createTutorialManager({ state }) {
     if (event.code === 'Escape') {
       if (mode === 'library') closeLibrary();
       else finishActiveCard();
-    } else if (mode === 'card' && (event.code === 'ArrowRight' || event.code === 'Enter' || event.code === 'Space')) {
+    } else if (mode === 'card' && isTutorialAdvanceShortcut(event)) {
       nextPage();
-    } else if (mode === 'card' && event.code === 'ArrowLeft') {
-      previousPage();
     }
   }, true);
 

@@ -1,9 +1,9 @@
-import { ensureTutorialInterface } from './tutorial-bootstrap.js?v=20260716-6';
-import { createTutorialManager } from './tutorial-manager.js?v=20260716-6';
+import { ensureTutorialInterface } from './tutorial-bootstrap.js?v=20260716-7';
+import { createTutorialManager } from './tutorial-manager.js?v=20260716-7';
 import {
   createTutorialTriggers,
   TUTORIAL_RUNTIME_VERSION,
-} from './tutorial-triggers.js?v=20260716-6';
+} from './tutorial-triggers.js?v=20260716-7';
 
 ensureTutorialInterface();
 
