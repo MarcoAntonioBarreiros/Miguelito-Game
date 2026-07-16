@@ -66,6 +66,7 @@ function clearAllInputs() {
 }
 
 window.addEventListener('blur', clearAllInputs);
+window.addEventListener('miguelito:tutorial-open', clearAllInputs);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) clearAllInputs();
 });
