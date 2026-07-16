@@ -141,7 +141,9 @@ function initializeTutorialSystem() {
 
   window.miguelitoTutorial = manager;
   window.miguelitoTutorialDiagnostics = triggers.diagnostics;
-  setTimeout(() => triggers.showWelcome(), 350);
+
+  // A apresentação precisa entrar na fila antes do primeiro sensor visual.
+  triggers.showWelcome();
 
   function tutorialFrame() {
     triggers.update();
