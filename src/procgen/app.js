@@ -7,6 +7,7 @@ import { createCameraView } from './camera-view.js';
 import { createRhizoctoniaControl } from './rhizoctonia-control.js';
 import { createTrichodermaMeloidogyneControl } from './trichoderma-meloidogyne-control.js';
 import { createTrichodermaRhizoctoniaControl } from './trichoderma-rhizoctonia-control.js';
+import { createRalstoniaVascularWilt } from './ralstonia-vascular-wilt.js';
 import {
   advanceCampaignPhase,
   campaignEncounterTypes,
@@ -47,6 +48,12 @@ const trichodermaRhizoctoniaControl = createTrichodermaRhizoctoniaControl({
   state: sim.state,
   entities: sim.entities,
   colonies: sim.trichodermaColonies,
+});
+const ralstoniaControl = createRalstoniaVascularWilt({
+  state: sim.state,
+  entities: sim.entities,
+  inoculants: sim.beneficialInoculants,
+  pseudomonas: sim.pseudomonasSiderophores,
 });
 let profile = null;
 let seed = '';
@@ -135,6 +142,7 @@ function phaseIntroText() {
   if (campaign.phase === 1) return 'Salto duplo e dash serão liberados ao longo desta fase.';
   if (campaign.phase === 2) return 'Pontes micorrízicas e pulso mineral serão liberados nesta fase.';
   if (campaign.phase === 3) return 'A indução de raízes laterais por Azospirillum será liberada nesta fase.';
+  if (campaign.phase === 4) return 'Ralstonia surge como ameaça vascular: previna a entrada com Bacillus e Pseudomonas antes da murcha.';
   return `Todos os mecanismos estão ativos. Tema procedural: ${profile.theme}.`;
 }
 
@@ -154,6 +162,7 @@ function initGame({ announce = false } = {}) {
   rhizoctoniaControl.reset();
   trichodermaRhizoctoniaControl.reset();
   trichodermaMeloidogyneControl.reset();
+  ralstoniaControl.reset();
   sim.state.campaign = campaign;
   Object.assign(sim.state.level, levelData);
   sim.state.player.x = 100;
@@ -164,6 +173,7 @@ function initGame({ announce = false } = {}) {
   populateMicrobeEncounters(levelData.platforms, seed);
   sim.resetEcology(microbeEncounters);
   sim.resetBiology();
+  ralstoniaControl.initialize();
   microbeEncounters.length = 0;
   renderer = createRenderer({ canvas, state: sim.state, entities: sim.entities });
   platformVisuals = createPlatformVisuals({ state: sim.state });
@@ -185,15 +195,20 @@ function startNewCampaign() {
 }
 
 function buildPhaseReport() {
-  const rootHealth = clamp(sim.meloidogyneLifecycle.rootHealthAverage || 0, 0, 1);
+  const scoredRoots = (sim.state.level.platforms || []).filter(root => root.type === 'root' && !root.final && !root.recovery && !root.mycorrhizaStructure);
+  const rootHealth = scoredRoots.length
+    ? scoredRoots.reduce((sum, root) => sum + clamp(root.rootHealth ?? 1, 0, 1), 0) / scoredRoots.length
+    : 1;
   const infestation = clamp((sim.meloidogyneLifecycle.infestationPercent || 0) / 100, 0, 1);
-  const fixation = Math.max(0, sim.rhizobiumNodulation.fixationRate || 0);
+  const fixation = Math.max(0, (sim.state.level.rhizobiumNodules || []).reduce((sum, site) => sum + (site.fixationRate || 0), 0));
   const protection = Math.min(1, (sim.bacillusBioprotection.protectedRootCount || 0) / 4);
+  const vascularTransport = clamp(ralstoniaControl.averageTransport, 0, 1);
   const score = Math.round(
-    rootHealth * 45
-    + (1 - infestation) * 25
+    rootHealth * 40
+    + (1 - infestation) * 20
     + Math.min(1, fixation / 10) * 15
-    + protection * 15,
+    + protection * 15
+    + vascularTransport * 10,
   );
   return {
     phase: campaign.phase,
@@ -203,6 +218,7 @@ function buildPhaseReport() {
     infestation: Math.round(infestation * 100),
     fixation: Number(fixation.toFixed(1)),
     protectedRoots: sim.bacillusBioprotection.protectedRootCount || 0,
+    vascularTransport: Math.round(vascularTransport * 100),
     score,
   };
 }
@@ -213,7 +229,8 @@ function maybeAdvanceCampaign() {
   if (!campaign.transitionCaptured) {
     const report = buildPhaseReport();
     recordPhaseResult(campaign, report);
-    sim.state.toast = `Fase ${report.phase}: ${report.score} pontos · saúde ${report.rootHealth}% · infestação ${report.infestation}%`;
+    const vascular = report.phase >= 4 ? ` · transporte ${report.vascularTransport}%` : '';
+    sim.state.toast = `Fase ${report.phase}: ${report.score} pontos · saúde ${report.rootHealth}% · infestação ${report.infestation}%${vascular}`;
     sim.state.toastTime = 3.4;
   }
 
@@ -257,6 +274,7 @@ function renderWorld() {
     renderer.render();
     platformVisuals.drawWorld(ctx);
     rhizoctoniaControl.render(ctx);
+    ralstoniaControl.render(ctx);
     sim.pseudomonasSiderophores.renderDeposits(ctx);
     sim.ecology.render(ctx);
     sim.meloidogyneLifecycle.render(ctx);
@@ -292,6 +310,7 @@ function loop(now) {
     rhizoctoniaControl.update(dt);
     trichodermaRhizoctoniaControl.update(dt);
     trichodermaMeloidogyneControl.update(dt);
+    ralstoniaControl.update(dt);
     maybeAdvanceCampaign();
     cameraView.update(dt);
     renderWorld();
@@ -331,22 +350,28 @@ function loop(now) {
     const rhizoctonia = rhizoctoniaControl.activeCount
       ? ` | Rhizoctonia: ${rhizoctoniaControl.controlledCount}/${rhizoctoniaControl.activeCount} contida${rhizoctoniaControl.activeCount > 1 ? 's' : ''}`
       : '';
+    const ralstonia = ralstoniaControl.focusCount
+      ? ` | Ralstonia: ${ralstoniaControl.focusCount} · transporte ${Math.round(ralstoniaControl.averageTransport * 100)}%`
+      : '';
     const trichoRhizo = trichodermaRhizoctoniaControl.activeAttackCount
       ? ` | Trichoderma→Rhizoctonia: ${trichodermaRhizoctoniaControl.activeAttackCount}`
       : '';
     const trichoNematode = trichodermaMeloidogyneControl.activeAttackCount
       ? ` | Trichoderma→Meloidogyne: ${trichodermaMeloidogyneControl.activeAttackCount}`
       : '';
-    hudBar.textContent = `F${campaign.phase} · ${campaign.totalScore} pts | Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exsudatos: ${player.exudates}${infection}${bacillusDefense}${nematodePressure}${rhizoctonia}${trichoRhizo}${trichoNematode}${abilities ? ' | ' + abilities : ''}`;
+    hudBar.textContent = `F${campaign.phase} · ${campaign.totalScore} pts | Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exsudatos: ${player.exudates}${infection}${bacillusDefense}${nematodePressure}${rhizoctonia}${ralstonia}${trichoRhizo}${trichoNematode}${abilities ? ' | ' + abilities : ''}`;
 
     if (showDebug) {
       const logicIndex = currentLogicIndex();
       const info = levelData.debugInfo[logicIndex];
       const vigor = Math.round(sim.trichodermaColonies.vigorAverage * 100);
       const beneficialVigor = Math.round(sim.beneficialInoculants.vigorAverage * 100);
-      const fixation = sim.rhizobiumNodulation.fixationRate.toFixed(1);
+      const fixation = (sim.state.level.rhizobiumNodules || []).reduce((sum, site) => sum + (site.fixationRate || 0), 0).toFixed(1);
       const ironRecovered = sim.pseudomonasSiderophores.ironRecovered.toFixed(1);
-      const rootHealth = Math.round(sim.meloidogyneLifecycle.rootHealthAverage * 100);
+      const liveRoots = (sim.state.level.platforms || []).filter(root => root.type === 'root' && !root.final && !root.recovery && !root.mycorrhizaStructure);
+      const rootHealth = liveRoots.length
+        ? Math.round(liveRoots.reduce((sum, root) => sum + clamp(root.rootHealth ?? 1, 0, 1), 0) / liveRoots.length * 100)
+        : 100;
       debugDiv.textContent = `CAMPANHA: ${campaign.seed} | Fase ${campaign.phase} — ${profile.title} [${profile.theme}]\nSEED: ${seed} [R=nova campanha | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
         + (info ? ` | ${info.primitive} | ${info.logic.difficultyTarget} | vão ${info.gap}px` : '')
         + `\nPoderes: salto ${campaign.unlocks.doubleJump ? '✓' : '—'} / dash ${campaign.unlocks.dash ? '✓' : '—'} / pulso ${campaign.unlocks.pulse ? '✓' : '—'} / pontes AM ${campaign.unlocks.mycorrhizaStructures ? '✓' : '—'} / raízes Azo ${campaign.unlocks.azospirillumRoots ? '✓' : '—'}`
@@ -354,6 +379,7 @@ function loop(now) {
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
         + `\nRhizoctonia: ${rhizoctoniaControl.activeCount} focos / ${rhizoctoniaControl.controlledCount} contidos por biocontrole`
         + `\nTrichoderma anti-Rhizoctonia: ${trichodermaRhizoctoniaControl.activeAttackCount} ataques · ${trichodermaRhizoctoniaControl.eliminatedCount} focos lisados · ${trichodermaRhizoctoniaControl.abortedCount} ataques interrompidos`
+        + `\nRalstonia: ${ralstoniaControl.focusCount} focos ativos / ${ralstoniaControl.neutralizedCount} neutralizados / ${ralstoniaControl.criticalCount} críticos · transporte médio ${Math.round(ralstoniaControl.averageTransport * 100)}%`
         + `\nMeloidogyne: ${sim.meloidogyneLifecycle.eggMassCount} massas (${sim.meloidogyneLifecycle.eggCount} ovos) / ${sim.meloidogyneLifecycle.juvenileCount} J2 livres / ${sim.meloidogyneLifecycle.penetratingCount} penetrando`
         + `\nTrichoderma anti-Meloidogyne: ${trichodermaMeloidogyneControl.activeAttackCount} ataques (${trichodermaMeloidogyneControl.eggAttackCount} ovos / ${trichodermaMeloidogyneControl.juvenileAttackCount} J2) · ${trichodermaMeloidogyneControl.eggsDestroyed} ovos inviabilizados · ${trichodermaMeloidogyneControl.eggMassesNeutralized} massas neutralizadas · ${trichodermaMeloidogyneControl.juvenilesDestroyed} J2 lisados`
         + `\nGalhas: ${sim.meloidogyneLifecycle.gallCount} totais / ${sim.meloidogyneLifecycle.matureGallCount} maduras / ${sim.meloidogyneLifecycle.femaleCount} fêmeas / saúde radicular média ${rootHealth}%`
