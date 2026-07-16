@@ -84,7 +84,10 @@ export function createRalstoniaVascularWilt({ state, entities, inoculants, pseud
       selected.push(candidate);
       if (selected.length >= count) break;
     }
-    while (selected.length < count && candidates[selected.length]) selected.push(candidates[selected.length]);
+    for (const candidate of candidates) {
+      if (selected.length >= count) break;
+      if (!selected.includes(candidate)) selected.push(candidate);
+    }
 
     for (const { root, score } of selected) {
       const x = clamp(
@@ -209,6 +212,7 @@ export function createRalstoniaVascularWilt({ state, entities, inoculants, pseud
     root.rootHealth = clamp(Math.min(root.rootHealth ?? 1, 1 - root.rootDamage), .06, 1);
     root.carbonAvailability = clamp(Math.min(root.carbonAvailability ?? 1, efficiency * (1 - vascular * .18)), .05, 1);
     root.nutrientEfficiency = clamp(Math.min(root.nutrientEfficiency ?? 1, efficiency * (1 - vascular * .12)), .04, 1);
+    root.mycorrhizaEfficiency = efficiency;
     root.recoveryBlocked = vascular >= .58;
 
     for (const colony of inoculants?.colonies || []) {
@@ -220,9 +224,14 @@ export function createRalstoniaVascularWilt({ state, entities, inoculants, pseud
 
     for (const site of state.level.rhizobiumNodules || []) {
       if (site.platform !== root) continue;
+      const rawFixation = site.fixationRate || 0;
+      const adjustedFixation = rawFixation * efficiency;
+      const lostFixation = Math.max(0, rawFixation - adjustedFixation);
       site.vascularEfficiency = efficiency;
       site.activity *= efficiency;
-      site.fixationRate *= efficiency;
+      site.fixationRate = adjustedFixation;
+      state.player.soil = Math.max(0, state.player.soil - dt * .022 * lostFixation);
+      state.player.hope = Math.max(0, state.player.hope - dt * .013 * lostFixation);
     }
   }
 
@@ -460,6 +469,7 @@ export function createRalstoniaVascularWilt({ state, entities, inoculants, pseud
       delete root.ralstoniaStage;
       delete root.ralstoniaDamage;
       delete root.vascularEfficiency;
+      delete root.mycorrhizaEfficiency;
       delete root.recoveryBlocked;
     }
   }
