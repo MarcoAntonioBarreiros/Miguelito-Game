@@ -277,6 +277,7 @@ function loop(now) {
     lastTime = now;
 
     rhizoctoniaControl.prepare(dt);
+    trichodermaMeloidogyneControl.update(0);
     sim.setInputs(keys);
     sim.step(dt);
     rhizoctoniaControl.update(dt);
