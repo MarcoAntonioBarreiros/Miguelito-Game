@@ -43,6 +43,26 @@ export function createPlatformVisuals({ state }) {
     ctx.fillStyle = top;
     ctx.fillRect(platform.x, platform.y, platform.w, 7);
 
+    const rootDamage = clamp(platform.rootDamage || 0, 0, 1);
+    if (rootDamage > .025) {
+      const stress = ctx.createLinearGradient(platform.x, platform.y, platform.x + platform.w, platform.y + platform.h);
+      stress.addColorStop(0, `rgba(255,116,105,${rootDamage * .16})`);
+      stress.addColorStop(.55, `rgba(128,42,54,${rootDamage * .24})`);
+      stress.addColorStop(1, `rgba(72,22,40,${rootDamage * .12})`);
+      ctx.fillStyle = stress;
+      ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+
+      ctx.strokeStyle = `rgba(255,145,118,${.16 + rootDamage * .42})`;
+      ctx.lineWidth = 1 + rootDamage * 1.8;
+      for (let i = 0; i < 3; i++) {
+        const xx = platform.x + platform.w * (.22 + i * .28);
+        ctx.beginPath();
+        ctx.moveTo(xx, platform.y + 6);
+        ctx.bezierCurveTo(xx - 12, platform.y + platform.h * .28, xx + 18, platform.y + platform.h * .56, xx - 5, platform.y + platform.h * .82);
+        ctx.stroke();
+      }
+    }
+
     ctx.lineCap = 'round';
     for (let i = 0; i < Math.max(3, Math.floor(platform.w / 68)); i++) {
       const startX = platform.x + 18 + pseudo(seed, i) * Math.max(10, platform.w - 36);
@@ -195,10 +215,21 @@ export function createPlatformVisuals({ state }) {
   }
 
   function labelFor(platform) {
-    if (platform.azospirillumStructure) return { text: 'Raiz lateral', color: '#8ff4e8' };
+    const health = Math.round(clamp(platform.rootHealth ?? 1, 0, 1) * 100);
+    const infested = (platform.rootDamage || 0) > .055;
+    const stressColor = health > 65 ? '#ffd36f' : health > 35 ? '#ff9c70' : '#ff657f';
+    if (platform.azospirillumStructure) {
+      return infested
+        ? { text: `Raiz lateral infestada · saúde ${health}%`, color: stressColor }
+        : { text: 'Raiz lateral', color: '#8ff4e8' };
+    }
     if (platform.recovery) return { text: 'Raiz de recuperação', color: '#d6afff' };
     if (platform.final) return { text: 'Raiz principal', color: '#ffe0a2' };
-    if (platform.type === 'root') return { text: 'Raiz hospedeira', color: '#ffe0a2' };
+    if (platform.type === 'root') {
+      return infested
+        ? { text: `Raiz infestada · saúde ${health}%`, color: stressColor }
+        : { text: 'Raiz hospedeira', color: '#ffe0a2' };
+    }
     return { text: 'Solo', color: '#c99475' };
   }
 

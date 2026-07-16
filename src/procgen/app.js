@@ -93,7 +93,7 @@ function initGame() {
   sim.state.player.x = 100;
   sim.state.player.y = 400;
   sim.state.gameState = 'play';
-  sim.state.mission = 'Colete exsudatos e use E para dirigir as comunidades microbianas';
+  sim.state.mission = 'Restaure o solo vivo e observe as raízes infestadas por Meloidogyne';
   populateMicrobeEncounters(levelData.platforms, seed);
   sim.resetEcology(microbeEncounters);
   sim.resetBiology();
@@ -145,6 +145,7 @@ function loop(now) {
     platformVisuals.drawWorld(ctx);
     sim.pseudomonasSiderophores.renderDeposits(ctx);
     sim.ecology.render(ctx);
+    sim.meloidogyneLifecycle.render(ctx);
     sim.beneficialInoculants.render(ctx);
     sim.pseudomonasSiderophores.render(ctx);
     sim.azospirillumRootGrowth.render(ctx);
@@ -186,7 +187,10 @@ function loop(now) {
     const bacillusDefense = (player.bacillusResistance || 0) > .04
       ? ` | Defesa Bacillus: ${Math.round(player.bacillusResistance * 100)}%`
       : '';
-    hudBar.textContent = `Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exudatos: ${player.exudates}${infection}${bacillusDefense}${abilities ? ' | ' + abilities : ''}`;
+    const nematodePressure = sim.meloidogyneLifecycle.infestationPercent > 2
+      ? ` | Meloidogyne: ${sim.meloidogyneLifecycle.infestationPercent.toFixed(0)}%`
+      : '';
+    hudBar.textContent = `Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exudatos: ${player.exudates}${infection}${bacillusDefense}${nematodePressure}${abilities ? ' | ' + abilities : ''}`;
 
     if (showDebug) {
       const logicIndex = currentLogicIndex();
@@ -195,9 +199,12 @@ function loop(now) {
       const beneficialVigor = Math.round(sim.beneficialInoculants.vigorAverage * 100);
       const fixation = sim.rhizobiumNodulation.fixationRate.toFixed(1);
       const ironRecovered = sim.pseudomonasSiderophores.ironRecovered.toFixed(1);
+      const rootHealth = Math.round(sim.meloidogyneLifecycle.rootHealthAverage * 100);
       debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
         + (info ? ` | ${info.primitive} | ${info.logic.difficultyTarget} | vão ${info.gap}px` : '')
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
+        + `\nMeloidogyne: ${sim.meloidogyneLifecycle.eggMassCount} massas (${sim.meloidogyneLifecycle.eggCount} ovos) / ${sim.meloidogyneLifecycle.juvenileCount} J2 livres / ${sim.meloidogyneLifecycle.penetratingCount} penetrando`
+        + `\nGalhas: ${sim.meloidogyneLifecycle.gallCount} totais / ${sim.meloidogyneLifecycle.matureGallCount} maduras / ${sim.meloidogyneLifecycle.femaleCount} fêmeas / saúde radicular média ${rootHealth}%`
         + `\nMicorriza AM: ${sim.mycorrhiza.tipCount} pontas / ${sim.mycorrhiza.branchCount} ramos / ${sim.mycorrhiza.arbusculeCount} arbúsculos`
         + `\nEstruturas AM: ${sim.mycorrhizaStructures.growingCount} crescendo / ${sim.mycorrhizaStructures.matureCount} maduras (${sim.mycorrhizaStructures.ladderCount} escadas, ${sim.mycorrhizaStructures.bridgeCount} pontes)`
         + `\nInoculantes: ${sim.beneficialInoculants.followerCount} seguindo / ${sim.beneficialInoculants.colonyCount} colônias / vigor médio ${beneficialVigor}%`
