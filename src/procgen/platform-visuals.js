@@ -5,7 +5,7 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 function platformSeed(platform) {
   const x = Math.round(platform.x || 0);
-  const y = Math.round(platform.y || 0);
+  const y = Math.round(platform.rootBaseY ?? platform.y ?? 0);
   const w = Math.round(platform.w || 0);
   return Math.abs((x * 73856093) ^ (y * 19349663) ^ (w * 83492791));
 }
@@ -20,28 +20,66 @@ function roundedPath(ctx, platform, radius) {
   ctx.roundRect(platform.x, platform.y, platform.w, platform.h, radius);
 }
 
+function stateInfo(platform) {
+  const health = clamp(platform.rootHealth ?? 1, 0, 1);
+  const name = platform.rootState || (health >= .75 ? 'healthy' : health >= .5 ? 'stressed' : health >= .25 ? 'compromised' : 'collapse');
+  if (name === 'healthy') return { label: 'saudável', color: '#9bea8f', overlay: 'rgba(99,208,127,.08)' };
+  if (name === 'stressed') return { label: 'estressada', color: '#ffd36f', overlay: 'rgba(244,177,70,.12)' };
+  if (name === 'compromised') return { label: 'comprometida', color: '#ff9c70', overlay: 'rgba(214,84,67,.18)' };
+  return { label: 'em colapso', color: '#ff657f', overlay: 'rgba(79,25,38,.36)' };
+}
+
 export function createPlatformVisuals({ state }) {
   function drawRoot(ctx, platform) {
     const seed = platformSeed(platform);
     const radius = platform.final ? 18 : 15;
+    const health = clamp(platform.rootHealth ?? 1, 0, 1);
+    const maxHealth = clamp(platform.rootMaxHealth ?? 1, .01, 1);
+    const permanentDamage = clamp(platform.permanentDamage || 0, 0, .7);
+    const support = clamp(platform.supportIntegrity ?? health, 0, 1);
+    const stateStyle = stateInfo(platform);
+
     ctx.save();
     roundedPath(ctx, platform, radius);
     ctx.clip();
 
     const fill = ctx.createLinearGradient(0, platform.y, 0, platform.y + platform.h);
-    fill.addColorStop(0, platform.final ? '#e6c88f' : '#d9b477');
-    fill.addColorStop(.18, platform.final ? '#bd8c58' : '#ad774e');
-    fill.addColorStop(.72, '#5a382f');
+    fill.addColorStop(0, platform.final ? '#e6c88f' : health < .25 ? '#765141' : health < .5 ? '#b47a58' : '#d9b477');
+    fill.addColorStop(.18, platform.final ? '#bd8c58' : health < .25 ? '#593934' : '#ad774e');
+    fill.addColorStop(.72, health < .25 ? '#38272c' : '#5a382f');
     fill.addColorStop(1, '#2b1c25');
     ctx.fillStyle = fill;
     ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
 
     const top = ctx.createLinearGradient(platform.x, platform.y, platform.x + platform.w, platform.y);
-    top.addColorStop(0, 'rgba(255,240,194,.38)');
-    top.addColorStop(.5, 'rgba(255,220,151,.72)');
-    top.addColorStop(1, 'rgba(255,240,194,.28)');
+    top.addColorStop(0, `rgba(255,240,194,${.18 + health * .2})`);
+    top.addColorStop(.5, `rgba(255,220,151,${.25 + health * .47})`);
+    top.addColorStop(1, `rgba(255,240,194,${.12 + health * .16})`);
     ctx.fillStyle = top;
     ctx.fillRect(platform.x, platform.y, platform.w, 7);
+
+    ctx.fillStyle = stateStyle.overlay;
+    ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+
+    if (permanentDamage > .01) {
+      const scarWidth = platform.w * permanentDamage;
+      const scarX = platform.x + platform.w - scarWidth;
+      const scar = ctx.createLinearGradient(scarX, platform.y, platform.x + platform.w, platform.y + platform.h);
+      scar.addColorStop(0, 'rgba(80,42,47,.04)');
+      scar.addColorStop(.45, `rgba(72,33,43,${.2 + permanentDamage * .55})`);
+      scar.addColorStop(1, `rgba(37,20,31,${.28 + permanentDamage * .5})`);
+      ctx.fillStyle = scar;
+      ctx.fillRect(scarX, platform.y, scarWidth, platform.h);
+      ctx.strokeStyle = `rgba(255,126,118,${.24 + permanentDamage * .48})`;
+      ctx.lineWidth = 1.2;
+      for (let i = 0; i < 2 + Math.floor(permanentDamage * 8); i++) {
+        const x = scarX + pseudo(seed, i + 301) * Math.max(4, scarWidth);
+        ctx.beginPath();
+        ctx.moveTo(x, platform.y + 5);
+        ctx.bezierCurveTo(x - 8, platform.y + platform.h * .3, x + 9, platform.y + platform.h * .58, x - 3, platform.y + platform.h - 5);
+        ctx.stroke();
+      }
+    }
 
     const rootDamage = clamp(platform.rootDamage || 0, 0, 1);
     if (rootDamage > .025) {
@@ -52,13 +90,30 @@ export function createPlatformVisuals({ state }) {
       ctx.fillStyle = stress;
       ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
 
-      ctx.strokeStyle = `rgba(255,145,118,${.16 + rootDamage * .42})`;
+      const crackCount = 2 + Math.floor((1 - support) * 7);
+      ctx.strokeStyle = `rgba(255,145,118,${.12 + rootDamage * .42})`;
       ctx.lineWidth = 1 + rootDamage * 1.8;
-      for (let i = 0; i < 3; i++) {
-        const xx = platform.x + platform.w * (.22 + i * .28);
+      for (let i = 0; i < crackCount; i++) {
+        const xx = platform.x + platform.w * (.12 + pseudo(seed, i + 211) * .76);
         ctx.beginPath();
         ctx.moveTo(xx, platform.y + 6);
         ctx.bezierCurveTo(xx - 12, platform.y + platform.h * .28, xx + 18, platform.y + platform.h * .56, xx - 5, platform.y + platform.h * .82);
+        ctx.stroke();
+      }
+    }
+
+    if ((platform.healthTrend || 0) > 0 || (platform.recoveryPulse || 0) > .05) {
+      const pulse = clamp(platform.recoveryPulse || .25, 0, 1);
+      const flowCount = 3 + Math.floor((platform.noduleRecovery || 0) * 3 + (platform.mycorrhizaRecovery || 0) * 4);
+      ctx.lineWidth = 1.1 + pulse;
+      for (let i = 0; i < flowCount; i++) {
+        const phase = (state.time * (.18 + i * .02) + pseudo(seed, i + 411)) % 1;
+        const x = platform.x + 14 + phase * Math.max(12, platform.w - 28);
+        const y = platform.y + 9 + (i % 3) * Math.min(12, platform.h * .18);
+        ctx.strokeStyle = i % 2 ? `rgba(155,234,143,${.18 + pulse * .5})` : `rgba(255,211,111,${.16 + pulse * .44})`;
+        ctx.beginPath();
+        ctx.moveTo(x - 16, y + Math.sin(state.time * 3 + i) * 2);
+        ctx.quadraticCurveTo(x, y - 5, x + 16, y + 1);
         ctx.stroke();
       }
     }
@@ -69,8 +124,8 @@ export function createPlatformVisuals({ state }) {
       const depth = 13 + pseudo(seed, i + 17) * Math.max(12, platform.h * .62);
       const sway = (pseudo(seed, i + 31) - .5) * 34;
       ctx.strokeStyle = i % 2
-        ? 'rgba(255,220,158,.19)'
-        : 'rgba(104,65,48,.42)';
+        ? `rgba(255,220,158,${.08 + health * .11})`
+        : `rgba(104,65,48,${.18 + health * .24})`;
       ctx.lineWidth = 1.1 + pseudo(seed, i + 43) * 1.6;
       ctx.beginPath();
       ctx.moveTo(startX, platform.y + 5);
@@ -85,7 +140,7 @@ export function createPlatformVisuals({ state }) {
       ctx.stroke();
     }
 
-    ctx.strokeStyle = 'rgba(255,229,174,.23)';
+    ctx.strokeStyle = `rgba(255,229,174,${.08 + health * .15})`;
     ctx.lineWidth = 1;
     for (let y = platform.y + 18; y < platform.y + platform.h - 8; y += 17) {
       ctx.beginPath();
@@ -103,18 +158,20 @@ export function createPlatformVisuals({ state }) {
     ctx.restore();
 
     ctx.save();
-    ctx.strokeStyle = platform.final ? 'rgba(255,235,185,.9)' : 'rgba(246,213,157,.78)';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = platform.final ? 'rgba(255,235,185,.9)' : platform.healthTrend > 0 ? 'rgba(155,234,143,.92)' : `${stateStyle.color}cc`;
+    ctx.lineWidth = 1.4 + (1 - support) * 1.2;
+    if (platform.rootState === 'collapse') ctx.setLineDash([5, 5]);
     roundedPath(ctx, platform, radius);
     ctx.stroke();
+    ctx.setLineDash([]);
 
     if (!platform.mycorrhizaStructure) {
-      const hairCount = Math.max(2, Math.min(8, Math.floor(platform.w / 44)));
-      ctx.strokeStyle = 'rgba(233,213,180,.58)';
+      const hairCount = Math.max(0, Math.min(9, Math.floor(platform.w / 44 * health)));
+      ctx.strokeStyle = platform.healthTrend > 0 ? 'rgba(184,255,198,.78)' : `rgba(233,213,180,${.12 + health * .46})`;
       ctx.lineWidth = 1;
       for (let i = 0; i < hairCount; i++) {
-        const x = platform.x + 14 + (i + .5) / hairCount * Math.max(12, platform.w - 28);
-        const length = 7 + pseudo(seed, i + 71) * 10;
+        const x = platform.x + 14 + (i + .5) / Math.max(1, hairCount) * Math.max(12, platform.w - 28);
+        const length = 5 + health * (5 + pseudo(seed, i + 71) * 9);
         const lean = (pseudo(seed, i + 83) - .5) * 8;
         ctx.beginPath();
         ctx.moveTo(x, platform.y + 1);
@@ -216,19 +273,17 @@ export function createPlatformVisuals({ state }) {
 
   function labelFor(platform) {
     const health = Math.round(clamp(platform.rootHealth ?? 1, 0, 1) * 100);
-    const infested = (platform.rootDamage || 0) > .055;
-    const stressColor = health > 65 ? '#ffd36f' : health > 35 ? '#ff9c70' : '#ff657f';
+    const maxHealth = Math.round(clamp(platform.rootMaxHealth ?? 1, 0, 1) * 100);
+    const stateStyle = stateInfo(platform);
+    const scar = maxHealth < 100 ? ` · máx. ${maxHealth}%` : '';
     if (platform.azospirillumStructure) {
-      return infested
-        ? { text: `Raiz lateral infestada · saúde ${health}%`, color: stressColor }
-        : { text: 'Raiz lateral', color: '#8ff4e8' };
+      return { text: `Raiz lateral ${stateStyle.label} · ${health}%${scar}`, color: stateStyle.color };
     }
     if (platform.recovery) return { text: 'Raiz de recuperação', color: '#d6afff' };
     if (platform.final) return { text: 'Raiz principal', color: '#ffe0a2' };
     if (platform.type === 'root') {
-      return infested
-        ? { text: `Raiz infestada · saúde ${health}%`, color: stressColor }
-        : { text: 'Raiz hospedeira', color: '#ffe0a2' };
+      const recovery = platform.healthTrend > 0 ? ' · recuperando' : platform.unstable ? ' · sustentação instável' : '';
+      return { text: `Raiz ${stateStyle.label} · ${health}%${scar}${recovery}`, color: stateStyle.color };
     }
     return { text: 'Solo', color: '#c99475' };
   }
