@@ -43,6 +43,7 @@ export function createMeloidogyneLifecycle({ state, entities }) {
       eggs: maxEggs, maxEggs, generation, sourceGallId, initial,
       hatch: .8 + hash(platform, 127 + generation) * 2.2,
       age: 0, emptyAge: 0, phase: hash(platform, 139 + generation) * TAU,
+      trichodermaSuppression: 0, trichodermaLysis: 0, neutralized: false,
     };
     eggs.push(mass);
     return mass;
@@ -73,7 +74,7 @@ export function createMeloidogyneLifecycle({ state, entities }) {
   }
 
   function spawnJ2(mass) {
-    if (juveniles.length >= 18) return false;
+    if (mass.neutralized || juveniles.length >= 18) return false;
     const a = -Math.PI / 2 + (Math.random() - .5) * 1.2;
     juveniles.push({
       id: `melo-j2-${juvenileId++}`, generation: mass.generation,
@@ -81,6 +82,7 @@ export function createMeloidogyneLifecycle({ state, entities }) {
       vx: Math.cos(a) * (18 + Math.random() * 16), vy: Math.sin(a) * (18 + Math.random() * 12),
       state: 'seeking', targetRoot: null, targetX: mass.x, progress: 0,
       age: 0, retarget: 0, cooldown: 0, phase: Math.random() * TAU, alive: true,
+      trichodermaCaught: false, trichodermaLysis: 0,
     });
     entities.burst(mass.x, mass.y - 8, '#fff0cf', 8, 58);
     return true;
@@ -89,8 +91,12 @@ export function createMeloidogyneLifecycle({ state, entities }) {
   function updateEggs(dt) {
     for (const m of eggs) {
       m.age += dt; m.y = m.platform.y - 7; m.x = clamp(m.x, m.platform.x + 20, m.platform.x + m.platform.w - 20);
+      const suppression = clamp(m.trichodermaSuppression || 0, 0, 1);
+      if (m.neutralized) { m.eggs = 0; m.emptyAge += dt; continue; }
       if (m.eggs <= 0) { m.emptyAge += dt; continue; }
-      m.hatch -= dt;
+      m.hatch -= dt * (1 - suppression * .98);
+      m.trichodermaSuppression = Math.max(0, suppression - dt * .18);
+      m.trichodermaLysis = Math.max(0, (m.trichodermaLysis || 0) - dt * .06);
       if (m.hatch <= 0 && spawnJ2(m)) {
         m.eggs--; m.hatch = 1.45 + Math.random() * 2.4 + m.generation * .18;
         if (m.eggs === m.maxEggs - 1) announce('Eclosão de Meloidogyne: juvenis J2 móveis deixaram a massa de ovos e procuram uma raiz hospedeira.');
@@ -190,7 +196,14 @@ export function createMeloidogyneLifecycle({ state, entities }) {
   }
   function updateJuveniles(dt) {
     for (const j of juveniles) {
-      j.age += dt; if (j.age > 32 && j.state === 'seeking') j.alive = false;
+      j.age += dt;
+      if (!j.alive) continue;
+      if (j.trichodermaCaught && j.state === 'seeking') {
+        j.vx *= Math.pow(.02, dt);
+        j.vy *= Math.pow(.02, dt);
+        continue;
+      }
+      if (j.age > 32 && j.state === 'seeking') j.alive = false;
       if (!j.alive) continue;
       if (j.state === 'seeking') seek(j, dt); else if (j.state === 'penetrating') penetrate(j, dt); else migrate(j, dt);
     }
@@ -257,22 +270,26 @@ export function createMeloidogyneLifecycle({ state, entities }) {
 
   function drawEgg(ctx, m) {
     const ratio = m.eggs / Math.max(1, m.maxEggs), empty = m.eggs <= 0;
-    ctx.save(); ctx.translate(m.x, m.y); ctx.globalAlpha = empty ? clamp(1 - m.emptyAge / 11, 0, .45) : 1;
-    ctx.fillStyle = empty ? 'rgba(180,132,105,.22)' : 'rgba(255,213,155,.28)';
-    ctx.strokeStyle = empty ? 'rgba(199,157,128,.25)' : 'rgba(255,235,196,.82)';
+    const neutralized = Boolean(m.neutralized);
+    ctx.save(); ctx.translate(m.x, m.y); ctx.globalAlpha = empty ? clamp(1 - m.emptyAge / 11, 0, .55) : 1;
+    ctx.fillStyle = neutralized ? 'rgba(94,181,116,.24)' : empty ? 'rgba(180,132,105,.22)' : 'rgba(255,213,155,.28)';
+    ctx.strokeStyle = neutralized ? 'rgba(141,240,168,.82)' : empty ? 'rgba(199,157,128,.25)' : 'rgba(255,235,196,.82)';
     ctx.beginPath(); ctx.ellipse(0, -2, 14 + ratio * 5, 8 + ratio * 3, 0, 0, TAU); ctx.fill(); ctx.stroke();
     for (let i = 0; i < Math.max(2, m.eggs); i++) {
       const a = i / Math.max(2, m.eggs) * TAU + m.phase, r = 3 + i % 3 * 3;
-      ctx.fillStyle = i % 2 ? '#fff0cf' : '#ffd7a0'; ctx.beginPath(); ctx.ellipse(Math.cos(a) * r, -2 + Math.sin(a) * r * .48, 2.4, 1.7, a, 0, TAU); ctx.fill();
+      ctx.fillStyle = neutralized ? '#9dd7a8' : i % 2 ? '#fff0cf' : '#ffd7a0'; ctx.beginPath(); ctx.ellipse(Math.cos(a) * r, -2 + Math.sin(a) * r * .48, 2.4, 1.7, a, 0, TAU); ctx.fill();
     }
-    if (!empty) { ctx.font = '700 8px Inter,system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff0cf'; ctx.fillText(`ovos ${m.eggs}`, 0, -15); }
+    ctx.font = '700 8px Inter,system-ui'; ctx.textAlign = 'center';
+    if (neutralized) { ctx.fillStyle = '#baffc7'; ctx.fillText('massa neutralizada', 0, -15); }
+    else if (!empty) { ctx.fillStyle = '#fff0cf'; ctx.fillText(`ovos ${m.eggs}`, 0, -15); }
     ctx.restore();
   }
   function drawJ2(ctx, j) {
+    const caught = Boolean(j.trichodermaCaught);
     const embedded = j.state !== 'seeking', a = Math.atan2(j.vy || 0, j.vx || 1);
-    ctx.save(); ctx.translate(j.x, j.y); ctx.rotate(a); ctx.strokeStyle = embedded ? '#ffa197' : '#fff1d5'; ctx.lineWidth = embedded ? 2.1 : 1.6;
-    ctx.beginPath(); for (let i = 0; i <= 12; i++) { const t = i / 12, x = (t - .5) * 25, y = Math.sin(t * Math.PI * 3 + state.time * 7 + j.phase) * (embedded ? 1.5 : 2.6); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke();
-    ctx.fillStyle = '#ffcab8'; ctx.beginPath(); ctx.arc(12.5, 0, 1.9, 0, TAU); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(j.x, j.y); ctx.rotate(a); ctx.strokeStyle = caught ? '#8df0a8' : embedded ? '#ffa197' : '#fff1d5'; ctx.lineWidth = caught ? 2.2 : embedded ? 2.1 : 1.6;
+    ctx.beginPath(); for (let i = 0; i <= 12; i++) { const t = i / 12, x = (t - .5) * 25, y = Math.sin(t * Math.PI * 3 + state.time * 7 + j.phase) * (embedded ? 1.5 : caught ? .7 : 2.6); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke();
+    ctx.fillStyle = caught ? '#d6ff94' : '#ffcab8'; ctx.beginPath(); ctx.arc(12.5, 0, 1.9, 0, TAU); ctx.fill(); ctx.restore();
   }
   function drawGall(ctx, g) {
     const p = clamp(g.progress, 0, 1), w = 10 + p * 22, h = 7 + p * 15;
