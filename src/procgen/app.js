@@ -6,6 +6,7 @@ import { createPlatformVisuals } from './platform-visuals.js';
 import { createCameraView } from './camera-view.js';
 import { createRhizoctoniaControl } from './rhizoctonia-control.js';
 import { createTrichodermaMeloidogyneControl } from './trichoderma-meloidogyne-control.js';
+import { createTrichodermaRhizoctoniaControl } from './trichoderma-rhizoctonia-control.js';
 import {
   advanceCampaignPhase,
   campaignEncounterTypes,
@@ -41,6 +42,11 @@ const trichodermaMeloidogyneControl = createTrichodermaMeloidogyneControl({
   entities: sim.entities,
   colonies: sim.trichodermaColonies,
   lifecycle: sim.meloidogyneLifecycle,
+});
+const trichodermaRhizoctoniaControl = createTrichodermaRhizoctoniaControl({
+  state: sim.state,
+  entities: sim.entities,
+  colonies: sim.trichodermaColonies,
 });
 let profile = null;
 let seed = '';
@@ -146,6 +152,7 @@ function updateTouchAbilityVisibility() {
 function initGame({ announce = false } = {}) {
   sim.reset();
   rhizoctoniaControl.reset();
+  trichodermaRhizoctoniaControl.reset();
   trichodermaMeloidogyneControl.reset();
   sim.state.campaign = campaign;
   Object.assign(sim.state.level, levelData);
@@ -259,6 +266,7 @@ function renderWorld() {
     sim.rhizobiumNodulation.render(ctx);
     sim.trichodermaColonies.render(ctx);
     sim.trichoderma.render(ctx);
+    trichodermaRhizoctoniaControl.render(ctx);
     trichodermaMeloidogyneControl.render(ctx);
     sim.mycorrhizaStructures.render(ctx);
     sim.mycorrhiza.render(ctx);
@@ -277,10 +285,12 @@ function loop(now) {
     lastTime = now;
 
     rhizoctoniaControl.prepare(dt);
+    trichodermaRhizoctoniaControl.update(0);
     trichodermaMeloidogyneControl.update(0);
     sim.setInputs(keys);
     sim.step(dt);
     rhizoctoniaControl.update(dt);
+    trichodermaRhizoctoniaControl.update(dt);
     trichodermaMeloidogyneControl.update(dt);
     maybeAdvanceCampaign();
     cameraView.update(dt);
@@ -321,10 +331,13 @@ function loop(now) {
     const rhizoctonia = rhizoctoniaControl.activeCount
       ? ` | Rhizoctonia: ${rhizoctoniaControl.controlledCount}/${rhizoctoniaControl.activeCount} contida${rhizoctoniaControl.activeCount > 1 ? 's' : ''}`
       : '';
+    const trichoRhizo = trichodermaRhizoctoniaControl.activeAttackCount
+      ? ` | Trichoderma→Rhizoctonia: ${trichodermaRhizoctoniaControl.activeAttackCount}`
+      : '';
     const trichoNematode = trichodermaMeloidogyneControl.activeAttackCount
       ? ` | Trichoderma→Meloidogyne: ${trichodermaMeloidogyneControl.activeAttackCount}`
       : '';
-    hudBar.textContent = `F${campaign.phase} · ${campaign.totalScore} pts | Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exsudatos: ${player.exudates}${infection}${bacillusDefense}${nematodePressure}${rhizoctonia}${trichoNematode}${abilities ? ' | ' + abilities : ''}`;
+    hudBar.textContent = `F${campaign.phase} · ${campaign.totalScore} pts | Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exsudatos: ${player.exudates}${infection}${bacillusDefense}${nematodePressure}${rhizoctonia}${trichoRhizo}${trichoNematode}${abilities ? ' | ' + abilities : ''}`;
 
     if (showDebug) {
       const logicIndex = currentLogicIndex();
@@ -340,6 +353,7 @@ function loop(now) {
         + `\nCâmera: ${cameraView.zoom.toFixed(2)}× [roda ou +/− | 0=restaurar]`
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
         + `\nRhizoctonia: ${rhizoctoniaControl.activeCount} focos / ${rhizoctoniaControl.controlledCount} contidos por biocontrole`
+        + `\nTrichoderma anti-Rhizoctonia: ${trichodermaRhizoctoniaControl.activeAttackCount} ataques · ${trichodermaRhizoctoniaControl.eliminatedCount} focos lisados · ${trichodermaRhizoctoniaControl.abortedCount} ataques interrompidos`
         + `\nMeloidogyne: ${sim.meloidogyneLifecycle.eggMassCount} massas (${sim.meloidogyneLifecycle.eggCount} ovos) / ${sim.meloidogyneLifecycle.juvenileCount} J2 livres / ${sim.meloidogyneLifecycle.penetratingCount} penetrando`
         + `\nTrichoderma anti-Meloidogyne: ${trichodermaMeloidogyneControl.activeAttackCount} ataques (${trichodermaMeloidogyneControl.eggAttackCount} ovos / ${trichodermaMeloidogyneControl.juvenileAttackCount} J2) · ${trichodermaMeloidogyneControl.eggsDestroyed} ovos inviabilizados · ${trichodermaMeloidogyneControl.eggMassesNeutralized} massas neutralizadas · ${trichodermaMeloidogyneControl.juvenilesDestroyed} J2 lisados`
         + `\nGalhas: ${sim.meloidogyneLifecycle.gallCount} totais / ${sim.meloidogyneLifecycle.matureGallCount} maduras / ${sim.meloidogyneLifecycle.femaleCount} fêmeas / saúde radicular média ${rootHealth}%`
