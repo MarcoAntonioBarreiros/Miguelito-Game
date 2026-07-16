@@ -253,7 +253,7 @@ export function createSimulator() {
     if (state.toastTime > 0) state.toastTime -= dt;
   }
 
-  return {
+  const simulator = {
     state, input, entities, ecology, mycorrhiza, mycorrhizaStructures,
     trichoderma, recruitment, trichodermaColonies, beneficialInoculants,
     pseudomonasSiderophores, bacillusBioprotection, bacillusBioprotectionSafety,
@@ -261,4 +261,7 @@ export function createSimulator() {
     meloidogyneLifecycle, pathogenSurvival, goal, gameplay,
     reset, resetEcology, resetBiology, setInputs, step,
   };
+
+  if (typeof window !== 'undefined') window.miguelitoSim = simulator;
+  return simulator;
 }
