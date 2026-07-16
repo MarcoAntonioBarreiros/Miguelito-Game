@@ -1,6 +1,14 @@
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-export const TUTORIAL_RUNTIME_VERSION = '2026.07.16.5';
+export const TUTORIAL_RUNTIME_VERSION = '2026.07.16.6';
+
+export const TUTORIAL_PROXIMITY = Object.freeze({
+  microbeAgent: 220,
+  microbeCommunity: 210,
+  organism: 280,
+  structure: 300,
+  rootProcess: 320,
+});
 
 const discoveryCards = {
   rhizobium: 'organism-rhizobium',
@@ -77,20 +85,19 @@ export function createTutorialTriggers({
       const cardId = discoveryCards[agent.type];
       if (!cardId || manager.hasSeen(cardId)) continue;
       const distance = distanceToPlayer(agent.x, agent.y);
-      if (distance > 760) continue;
+      if (distance > TUTORIAL_PROXIMITY.microbeAgent) continue;
       candidates.push({ type: agent.type, cardId, distance, source: 'agent' });
     }
 
     for (const zone of sim.ecology.encounters || []) {
       const cardId = discoveryCards[zone.id];
       if (!cardId || manager.hasSeen(cardId)) continue;
-      const radius = clamp((zone.r || 145) + 420, 560, 840);
       const distance = distanceToPlayer(zone.x, zone.y);
-      if (distance > radius) continue;
+      if (distance > TUTORIAL_PROXIMITY.microbeCommunity) continue;
       candidates.push({
         type: zone.id,
         cardId,
-        distance: distance + 55,
+        distance,
         source: 'community',
       });
     }
@@ -140,7 +147,7 @@ export function createTutorialTriggers({
     if (now < resumeDelayUntil || now - lastCheckAt < 140) return;
     lastCheckAt = now;
 
-    // A primeira presença visual de um organismo tem prioridade sobre poderes e ações.
+    // O cartão só abre quando Miguelito chega perto do organismo ou da comunidade.
     if (triggerVisibleOrganism()) return;
     if (triggerNewLogicalDiscovery()) return;
     if (triggerStateTransitions()) return;
@@ -148,39 +155,54 @@ export function createTutorialTriggers({
     const rhizoctonia = (state.level.enemies || []).find(enemy => (
       enemy.alive
       && (enemy.type === 'rhizoctonia' || Number.isFinite(enemy.colonization))
-      && nearPoint(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, 720)
+      && nearPoint(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, TUTORIAL_PROXIMITY.organism)
     ));
     if (trigger('organism-rhizoctonia', rhizoctonia)) return;
 
     const ralstonia = (ralstoniaControl.foci || []).find(focus => (
-      !focus.neutralized && nearPlatform(focus.root, 720)
+      !focus.neutralized && nearPlatform(focus.root, TUTORIAL_PROXIMITY.rootProcess)
     ));
     if (trigger('organism-ralstonia', ralstonia)) return;
 
     const juveniles = sim.meloidogyneLifecycle.juveniles || [];
-    const nearbyJ2 = juveniles.find(juvenile => juvenile.alive && nearPoint(juvenile.x, juvenile.y, 620));
+    const nearbyJ2 = juveniles.find(juvenile => (
+      juvenile.alive && nearPoint(juvenile.x, juvenile.y, TUTORIAL_PROXIMITY.organism)
+    ));
     if (trigger('organism-meloidogyne-j2', nearbyJ2)) return;
 
     const eggMasses = sim.meloidogyneLifecycle.eggMasses || [];
-    const nearbyEggMass = eggMasses.find(mass => mass.eggs > 0 && nearPoint(mass.x, mass.y, 620));
+    const nearbyEggMass = eggMasses.find(mass => (
+      mass.eggs > 0 && nearPoint(mass.x, mass.y, TUTORIAL_PROXIMITY.structure)
+    ));
     if (trigger('structure-egg-mass', nearbyEggMass)) return;
 
     const galls = sim.meloidogyneLifecycle.galls || [];
-    const adultFemale = galls.find(gall => gall.progress >= .78 && nearPoint(gall.x, gall.platform?.y || gall.y, 650));
+    const adultFemale = galls.find(gall => (
+      gall.progress >= .78
+      && nearPoint(gall.x, gall.platform?.y || gall.y, TUTORIAL_PROXIMITY.structure)
+    ));
     if (trigger('organism-meloidogyne-female', adultFemale)) return;
 
-    const nearbyGall = galls.find(gall => gall.progress >= .12 && nearPoint(gall.x, gall.platform?.y || gall.y, 620));
+    const nearbyGall = galls.find(gall => (
+      gall.progress >= .12
+      && nearPoint(gall.x, gall.platform?.y || gall.y, TUTORIAL_PROXIMITY.structure)
+    ));
     if (trigger('structure-gall', nearbyGall)) return;
 
     const nodules = state.level.rhizobiumNodules || [];
-    const nearbyNodule = nodules.find(site => site.compatible && nearPoint(site.x, site.surfaceY, 600));
+    const nearbyNodule = nodules.find(site => (
+      site.compatible && nearPoint(site.x, site.surfaceY, TUTORIAL_PROXIMITY.rootProcess)
+    ));
     if (trigger('structure-nodule', nearbyNodule)) return;
 
-    const activeFixation = nodules.find(site => site.fixationRate > .05 && nearPoint(site.x, site.surfaceY, 640));
+    const activeFixation = nodules.find(site => (
+      site.fixationRate > .05 && nearPoint(site.x, site.surfaceY, TUTORIAL_PROXIMITY.rootProcess)
+    ));
     if (trigger('process-fbn', activeFixation)) return;
 
     const nearbyBiofilm = (state.level.biofilms || []).find(film => (
-      film.functional && nearPoint(film.x, film.platform?.y ?? film.y, 620)
+      film.functional
+      && nearPoint(film.x, film.platform?.y ?? film.y, TUTORIAL_PROXIMITY.structure)
     ));
     if (trigger('structure-biofilm', nearbyBiofilm)) return;
 
@@ -188,21 +210,29 @@ export function createTutorialTriggers({
     const siderophoreActive = sim.pseudomonasSiderophores.freeCount > 0
       || sim.pseudomonasSiderophores.loadedCount > 0
       || sim.pseudomonasSiderophores.ironRecovered > 0;
-    if (trigger('process-siderophore', pseudomonasKnown && siderophoreActive)) return;
+    const nearbyPseudomonas = (sim.ecology.agents || []).some(agent => (
+      agent.type === 'pseudomonas'
+      && nearPoint(agent.x, agent.y, TUTORIAL_PROXIMITY.organism)
+    ));
+    if (trigger('process-siderophore', pseudomonasKnown && siderophoreActive && nearbyPseudomonas)) return;
 
     const nearbyArbuscule = (state.level.mycorrhizaArbuscules || []).find(arbuscule => (
-      arbuscule.maturity > .08 && nearPoint(arbuscule.x, arbuscule.y, 620)
+      arbuscule.maturity > .08
+      && nearPoint(arbuscule.x, arbuscule.y, TUTORIAL_PROXIMITY.structure)
     ));
     if (trigger('structure-arbuscule', nearbyArbuscule)) return;
 
     const mycorrhizaPath = (state.level.platforms || []).find(platform => (
-      platform.mycorrhizaStructure && nearPlatform(platform, 640)
+      platform.mycorrhizaStructure && nearPlatform(platform, TUTORIAL_PROXIMITY.rootProcess)
     ));
     if (trigger('structure-mycorrhiza-path', mycorrhizaPath)) return;
 
     const lateralRoot = (state.level.azospirillumRoots || []).find(root => (
       root.visibleProgress > .06
-      && (nearPoint(root.startX, root.startY, 640) || nearPoint(root.endX, root.endY, 640))
+      && (
+        nearPoint(root.startX, root.startY, TUTORIAL_PROXIMITY.rootProcess)
+        || nearPoint(root.endX, root.endY, TUTORIAL_PROXIMITY.rootProcess)
+      )
     ));
     if (trigger('structure-lateral-root', lateralRoot)) return;
 
@@ -211,7 +241,7 @@ export function createTutorialTriggers({
       && !root.final
       && !root.recovery
       && !root.mycorrhizaStructure
-      && nearPlatform(root, 620)
+      && nearPlatform(root, TUTORIAL_PROXIMITY.rootProcess)
     ));
     const changedRoot = roots.find(root => root.rootState && root.rootState !== 'healthy');
     if (trigger('process-root-health', changedRoot)) return;
@@ -222,8 +252,17 @@ export function createTutorialTriggers({
     const collapsedRoot = roots.find(root => root.rootState === 'collapse' || root.unstable);
     if (trigger('process-root-collapse', collapsedRoot)) return;
 
-    const mycoparasitismActive = trichodermaRhizoctoniaControl.activeAttackCount > 0
-      || sim.trichoderma.attackCount > 0;
+    const nearbyTargetedRhizoctonia = (state.level.enemies || []).some(enemy => (
+      enemy.trichodermaRhizoTargeted
+      && nearPoint(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, TUTORIAL_PROXIMITY.structure)
+    ));
+    const nearbyOpportunisticFungus = (sim.ecology.agents || []).some(agent => (
+      agent.type === 'oportunista'
+      && nearPoint(agent.x, agent.y, TUTORIAL_PROXIMITY.structure)
+    ));
+    const mycoparasitismActive = (
+      trichodermaRhizoctoniaControl.activeAttackCount > 0 && nearbyTargetedRhizoctonia
+    ) || (sim.trichoderma.attackCount > 0 && nearbyOpportunisticFungus);
     trigger('process-mycoparasitism', mycoparasitismActive);
   }
 
@@ -246,7 +285,7 @@ export function createTutorialTriggers({
         type: agent.type,
         distance: Math.round(Math.hypot(agent.x - player.x, agent.y - player.y)),
       }))
-      .filter(agent => agent.distance <= 900)
+      .filter(agent => agent.distance <= 500)
       .sort((a, b) => a.distance - b.distance);
 
     return {

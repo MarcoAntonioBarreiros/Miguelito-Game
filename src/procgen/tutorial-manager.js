@@ -1,11 +1,31 @@
 import { getTutorialCard, tutorialCardIds, tutorialCards } from './tutorial-registry.js';
 
-const SEEN_KEY = 'miguelito:tutorial:seen:v1';
-const UNLOCKED_KEY = 'miguelito:tutorial:unlocked:v1';
+export const TUTORIAL_STORAGE_KEYS = Object.freeze({
+  seen: 'miguelito:tutorial:seen:v2',
+  unlocked: 'miguelito:tutorial:unlocked:v2',
+});
+
+const LEGACY_LOCAL_STORAGE_KEYS = Object.freeze([
+  'miguelito:tutorial:seen:v1',
+  'miguelito:tutorial:unlocked:v1',
+  TUTORIAL_STORAGE_KEYS.seen,
+  TUTORIAL_STORAGE_KEYS.unlocked,
+]);
+
+export function isHardReloadShortcut(event) {
+  const commandKey = Boolean(event.ctrlKey || event.metaKey);
+  return (event.code === 'F5' && commandKey)
+    || (event.code === 'KeyR' && commandKey && event.shiftKey);
+}
+
+function isReloadShortcut(event) {
+  return event.code === 'F5'
+    || (event.code === 'KeyR' && Boolean(event.ctrlKey || event.metaKey));
+}
 
 function readStoredSet(key) {
   try {
-    const value = JSON.parse(localStorage.getItem(key) || '[]');
+    const value = JSON.parse(sessionStorage.getItem(key) || '[]');
     return new Set(Array.isArray(value) ? value : []);
   } catch (_) {
     return new Set();
@@ -14,9 +34,25 @@ function readStoredSet(key) {
 
 function writeStoredSet(key, set) {
   try {
-    localStorage.setItem(key, JSON.stringify([...set]));
+    sessionStorage.setItem(key, JSON.stringify([...set]));
   } catch (_) {
-    // O jogo continua funcionando mesmo quando o navegador bloqueia armazenamento local.
+    // O jogo continua funcionando mesmo quando o navegador bloqueia armazenamento da sessão.
+  }
+}
+
+function removeStoredSet(key) {
+  try {
+    sessionStorage.removeItem(key);
+  } catch (_) {
+    // O reset visual continua disponível mesmo sem acesso ao armazenamento local.
+  }
+}
+
+function removeLegacyLocalProgress() {
+  try {
+    for (const key of LEGACY_LOCAL_STORAGE_KEYS) localStorage.removeItem(key);
+  } catch (_) {
+    // Versões anteriores podem permanecer quando o navegador bloqueia o armazenamento.
   }
 }
 
@@ -76,14 +112,14 @@ export function createTutorialManager({ state }) {
             <div>
               <span class="tutorial-category">Biblioteca didática</span>
               <h1 class="tutorial-library-title">Descobertas da rizosfera</h1>
-              <p class="tutorial-library-description">Reabra os cartões já encontrados durante a campanha.</p>
+              <p class="tutorial-library-description">Reabra os cartões encontrados nesta sessão da campanha.</p>
             </div>
             <div class="tutorial-library-count"></div>
           </header>
           <div class="tutorial-library-grid"></div>
           <p class="tutorial-library-empty" hidden>Nenhum cartão foi descoberto ainda.</p>
           <footer class="tutorial-library-footer">
-            <button class="tutorial-button tutorial-reset-seen" type="button">Reexibir tutoriais automaticamente</button>
+            <button class="tutorial-button tutorial-reset-seen" type="button">Reiniciar progresso didático</button>
             <button class="tutorial-button tutorial-library-close" type="button">Voltar ao jogo</button>
           </footer>
           <p class="tutorial-library-status" aria-live="polite"></p>
@@ -120,8 +156,9 @@ export function createTutorialManager({ state }) {
   const desktopLibraryButton = document.getElementById('tutorial-library-button');
   const mobileLibraryButton = document.querySelector('[data-mobile-action="tutorial"]');
 
-  let seen = readStoredSet(SEEN_KEY);
-  let unlocked = readStoredSet(UNLOCKED_KEY);
+  removeLegacyLocalProgress();
+  let seen = readStoredSet(TUTORIAL_STORAGE_KEYS.seen);
+  let unlocked = readStoredSet(TUTORIAL_STORAGE_KEYS.unlocked);
   let queue = [];
   let activeId = null;
   let pageIndex = 0;
@@ -131,8 +168,8 @@ export function createTutorialManager({ state }) {
   let activeFirstSeen = false;
 
   function persist() {
-    writeStoredSet(SEEN_KEY, seen);
-    writeStoredSet(UNLOCKED_KEY, unlocked);
+    writeStoredSet(TUTORIAL_STORAGE_KEYS.seen, seen);
+    writeStoredSet(TUTORIAL_STORAGE_KEYS.unlocked, unlocked);
   }
 
   function unlock(id) {
@@ -348,18 +385,27 @@ export function createTutorialManager({ state }) {
     return true;
   }
 
-  function resetAutomaticTutorials() {
+  function clearStoredTutorialProgress() {
     seen = new Set();
-    writeStoredSet(SEEN_KEY, seen);
-    setText(libraryStatus, 'Os cartões descobertos voltarão a pausar o jogo quando seus gatilhos aparecerem novamente.');
+    unlocked = new Set();
+    queue = [];
+    removeStoredSet(TUTORIAL_STORAGE_KEYS.seen);
+    removeStoredSet(TUTORIAL_STORAGE_KEYS.unlocked);
+  }
+
+  function resetTutorialProgress() {
+    clearStoredTutorialProgress();
+    trigger('system-welcome', { force: true });
+    setText(libraryStatus, 'Progresso apagado. Ao voltar, a apresentação será exibida novamente.');
     renderLibrary();
+    window.dispatchEvent(new CustomEvent('miguelito:tutorial-reset'));
   }
 
   previousButton.addEventListener('click', previousPage);
   nextButton.addEventListener('click', nextPage);
   closeButton.addEventListener('click', finishActiveCard);
   libraryClose.addEventListener('click', closeLibrary);
-  resetSeenButton.addEventListener('click', resetAutomaticTutorials);
+  resetSeenButton.addEventListener('click', resetTutorialProgress);
   desktopLibraryButton?.addEventListener('click', openLibrary);
   mobileLibraryButton?.addEventListener('click', event => {
     event.preventDefault();
@@ -368,6 +414,12 @@ export function createTutorialManager({ state }) {
   window.addEventListener('miguelito:tutorial-library', openLibrary);
 
   window.addEventListener('keydown', event => {
+    if (isHardReloadShortcut(event)) {
+      clearStoredTutorialProgress();
+      return;
+    }
+    if (isReloadShortcut(event)) return;
+
     if (mode === 'closed') {
       if (event.code === 'KeyH' || event.code === 'F1') {
         event.preventDefault();
@@ -400,6 +452,7 @@ export function createTutorialManager({ state }) {
     trigger,
     openCard: id => openCard(id, { fromLibrary: false, firstSeen: !seen.has(id) }),
     openLibrary,
-    resetAutomaticTutorials,
+    resetTutorialProgress,
+    resetAutomaticTutorials: resetTutorialProgress,
   };
 }

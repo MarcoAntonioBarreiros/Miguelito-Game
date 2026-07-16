@@ -1,9 +1,9 @@
-import { ensureTutorialInterface } from './tutorial-bootstrap.js?v=20260716-5';
-import { createTutorialManager } from './tutorial-manager.js?v=20260716-5';
+import { ensureTutorialInterface } from './tutorial-bootstrap.js?v=20260716-6';
+import { createTutorialManager } from './tutorial-manager.js?v=20260716-6';
 import {
   createTutorialTriggers,
   TUTORIAL_RUNTIME_VERSION,
-} from './tutorial-triggers.js?v=20260716-5';
+} from './tutorial-triggers.js?v=20260716-6';
 
 ensureTutorialInterface();
 
@@ -144,11 +144,10 @@ function initializeTutorialSystem() {
 
   const libraryDescription = document.querySelector('.tutorial-library-description');
   if (libraryDescription) {
-    libraryDescription.textContent = `Reabra os cartões já encontrados durante a campanha. Sistema didático v${TUTORIAL_RUNTIME_VERSION}`;
+    libraryDescription.textContent = `Reabra os cartões encontrados nesta sessão da campanha. Sistema didático v${TUTORIAL_RUNTIME_VERSION}`;
   }
 
-  const resetTutorialsButton = document.querySelector('.tutorial-reset-seen');
-  resetTutorialsButton?.addEventListener('click', () => {
+  window.addEventListener('miguelito:tutorial-reset', () => {
     requestAnimationFrame(() => triggers.rearm());
   });
 
