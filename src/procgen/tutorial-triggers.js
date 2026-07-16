@@ -15,7 +15,6 @@ export function createTutorialTriggers({
   state,
   sim,
   manager,
-  rhizoctoniaControl,
   ralstoniaControl,
   trichodermaRhizoctoniaControl,
 }) {
@@ -54,7 +53,12 @@ export function createTutorialTriggers({
   }
 
   function update() {
-    if (manager.isOpen || state.gameState !== 'play') return;
+    if (
+      manager.isOpen
+      || state.gameState !== 'play'
+      || state.campaign?.transitionRequested
+    ) return;
+
     const now = performance.now();
     if (now - lastCheckAt < 180) return;
     lastCheckAt = now;
