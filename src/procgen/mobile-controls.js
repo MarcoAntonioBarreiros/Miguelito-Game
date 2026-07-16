@@ -135,7 +135,6 @@ function initializeTutorialSystem() {
     state: sim.state,
     sim,
     manager,
-    rhizoctoniaControl: null,
     ralstoniaControl: ralstoniaAdapter,
     trichodermaRhizoctoniaControl: trichodermaRhizoctoniaAdapter,
   });
