@@ -20,11 +20,18 @@ export function createGoalSystem({ state, entities }) {
     completedAt = state.time;
     state.player.vx = 0;
     state.player.vy = 0;
-    state.gameState = 'end';
-    state.mission = 'Raiz principal alcançada — o solo vivo foi reconectado';
-    state.toast = 'Fase concluída: a rede microbiana alcançou a raiz principal';
-    state.toastTime = 7;
+    state.gameState = state.campaign ? 'transition' : 'end';
+    state.mission = 'Raiz principal alcançada — preparando a próxima fase';
+    state.toast = `Fase ${state.campaign?.phase || 1} concluída: o sistema radicular atual será substituído`;
+    state.toastTime = 6;
     state.shake = .5;
+
+    if (state.campaign) {
+      state.campaign.transitionRequested = true;
+      state.campaign.transitionAt = state.time + 3.4;
+      state.campaign.transitionCaptured = false;
+    }
+
     for (let i = 0; i < 5; i++) {
       entities.burst(goal.x, goal.y + 45, i % 2 ? '#d6afff' : '#8ff2c1', 28, 140 + i * 36);
     }
@@ -104,10 +111,10 @@ export function createGoalSystem({ state, entities }) {
       ctx.shadowBlur = 12;
       ctx.shadowColor = goal.completed ? '#8ff2c1' : '#d6b37f';
       ctx.fillStyle = goal.completed ? '#eafff1' : '#fff1d4';
-      ctx.fillText(goal.completed ? 'SOLO VIVO RESTAURADO' : 'RAIZ PRINCIPAL', goal.x, goal.y - 226);
+      ctx.fillText(goal.completed ? 'FASE CONCLUÍDA' : 'RAIZ PRINCIPAL', goal.x, goal.y - 226);
       ctx.font = '600 11px Inter,system-ui';
       ctx.fillStyle = 'rgba(235,255,244,.82)';
-      ctx.fillText(goal.completed ? 'Fase concluída' : 'Alcance o córtex luminoso', goal.x, goal.y - 207);
+      ctx.fillText(goal.completed ? 'Gerando um novo sistema radicular' : 'Alcance o córtex luminoso', goal.x, goal.y - 207);
       ctx.shadowBlur = 0;
     }
 
