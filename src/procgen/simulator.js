@@ -216,10 +216,10 @@ export function createSimulator() {
   }
 
   function step(dt) {
-    pathogenSurvival.prepare(dt);
     trichodermaColonies.prepare(dt);
     beneficialInoculants.prepare(dt);
     gameplay.prepare(dt);
+    pathogenSurvival.prepare(dt);
     physics.update(dt);
     ecology.update(dt);
     recruitment.update(dt);
