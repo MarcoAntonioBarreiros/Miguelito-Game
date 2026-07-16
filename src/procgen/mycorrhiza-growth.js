@@ -22,6 +22,8 @@ function nearestRootTarget(state, x, y, minDistance = 0) {
         x: tx,
         y: ty,
         kind: 'root',
+        platform,
+        platformIndex: index,
         strength: platform.final ? 1.35 : 1,
         contactRadius: 20,
       };
@@ -85,9 +87,14 @@ export function createMycorrhizaGrowth({ state, entities }) {
   const networks = [];
   let active = false;
 
+  function exposeArbuscules() {
+    state.level.mycorrhizaArbuscules = networks.flatMap(network => network.arbuscules);
+  }
+
   function clear() {
     networks.length = 0;
     active = false;
+    state.level.mycorrhizaArbuscules = [];
   }
 
   function reset() {
@@ -106,6 +113,7 @@ export function createMycorrhizaGrowth({ state, entities }) {
       });
     }
     active = networks.length > 0;
+    exposeArbuscules();
   }
 
   function ensureHypha(network) {
@@ -133,7 +141,10 @@ export function createMycorrhizaGrowth({ state, entities }) {
       life: 1,
       maturity: 0,
       targetId: target.id,
+      platform: target.platform || null,
+      platformIndex: target.platformIndex ?? null,
     });
+    exposeArbuscules();
     entities.burst(target.x, target.y, '#d6afff', 16, 90);
     state.player.hope += .8;
   }
@@ -172,14 +183,20 @@ export function createMycorrhizaGrowth({ state, entities }) {
       });
 
       for (const arbuscule of network.arbuscules) {
+        if (arbuscule.platform) {
+          arbuscule.x = clamp(arbuscule.x, arbuscule.platform.x + 12, arbuscule.platform.x + arbuscule.platform.w - 12);
+          arbuscule.y = arbuscule.platform.y - 6;
+        }
         arbuscule.maturity = clamp(arbuscule.maturity + dt * .34, 0, 1);
         arbuscule.life = .65 + arbuscule.maturity * .35;
+        const rootEfficiency = clamp(arbuscule.platform?.mycorrhizaEfficiency ?? 1, .08, 1);
         if (arbuscule.maturity >= 1) {
-          state.player.hope += dt * .015;
-          state.player.soil += dt * .01;
+          state.player.hope += dt * .015 * rootEfficiency;
+          state.player.soil += dt * .01 * rootEfficiency;
         }
       }
     }
+    exposeArbuscules();
   }
 
   function drawNetwork(ctx, network) {
@@ -208,7 +225,9 @@ export function createMycorrhizaGrowth({ state, entities }) {
     ctx.save();
     ctx.translate(-state.cameraX, 0);
     for (const arbuscule of network.arbuscules) {
+      const efficiency = clamp(arbuscule.platform?.mycorrhizaEfficiency ?? 1, .08, 1);
       ctx.save();
+      ctx.globalAlpha = .28 + efficiency * .72;
       ctx.translate(arbuscule.x, arbuscule.y);
       ctx.scale(.45 + arbuscule.maturity * .55, .45 + arbuscule.maturity * .55);
       ctx.translate(-arbuscule.x, -arbuscule.y);
@@ -221,7 +240,7 @@ export function createMycorrhizaGrowth({ state, entities }) {
           const phase = (state.time * (.22 + i * .03) + i / particles) % 1;
           const y = arbuscule.y - 3 - phase * 30;
           ctx.fillStyle = i % 2 ? '#ffcf73' : '#d6afff';
-          ctx.globalAlpha = .35 + arbuscule.maturity * .45;
+          ctx.globalAlpha = (.35 + arbuscule.maturity * .45) * efficiency;
           ctx.beginPath();
           ctx.arc(arbuscule.x + Math.sin(state.time * 2 + i) * 4, y, 1.4 + i % 2, 0, TAU);
           ctx.fill();
@@ -253,6 +272,7 @@ export function createMycorrhizaGrowth({ state, entities }) {
     get branchCount() { return networks.reduce((sum, network) => sum + (network.hypha?.tips.length || 0), 0); },
     get tipCount() { return networks.reduce((sum, network) => sum + (network.hypha?.tips.filter(tip => tip.active).length || 0), 0); },
     get arbusculeCount() { return networks.reduce((sum, network) => sum + network.arbuscules.length, 0); },
+    get arbuscules() { return networks.flatMap(network => network.arbuscules); },
     clear,
     reset,
     update,
