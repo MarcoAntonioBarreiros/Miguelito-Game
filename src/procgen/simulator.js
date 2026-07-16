@@ -17,6 +17,7 @@ import { createAzospirillumRootSafety } from './azospirillum-root-safety.js';
 import { createMeloidogyneLifecycle } from './meloidogyne-lifecycle.js';
 import { createGoalSystem } from './goal-system.js';
 import { createEcologicalGameplay } from './ecological-gameplay.js';
+import { createPathogenSurvival } from './pathogen-survival.js';
 
 function createEmptyLevel() {
   return {
@@ -40,6 +41,7 @@ export function createSimulator() {
     campaign: null,
     cameraX: 0,
     shake: 0,
+    respawnTimer: 0,
   };
 
   const input = {
@@ -69,14 +71,33 @@ export function createSimulator() {
       }
     },
     discoverMicrobe: id => { state.discoveredMicrobes.add(id); },
-    respawn: () => {
-      state.player.x = state.currentCheckpoint ? state.currentCheckpoint.x : 100;
-      state.player.y = state.currentCheckpoint ? state.currentCheckpoint.y : 400;
-      state.player.vx = 0;
-      state.player.vy = 0;
-      state.player.alive = true;
-      state.player.infectionExposure = 0;
-      state.player.infection = Math.max(0, (state.player.infection || 0) - .28);
+    respawn: reason => {
+      const player = state.player;
+      for (const juvenile of state.level.nematodeJuveniles || []) {
+        if (juvenile.carriedByPlayer) juvenile.alive = false;
+      }
+      player.x = state.currentCheckpoint ? state.currentCheckpoint.x : 100;
+      player.y = state.currentCheckpoint ? state.currentCheckpoint.y : 400;
+      player.vx = 0;
+      player.vy = 0;
+      player.alive = true;
+      player.vitality = player.maxVitality || 5;
+      player.exudates = Math.floor((player.exudates || 0) / 2);
+      player.infectionExposure = 0;
+      player.infection = Math.min(.12, Math.max(0, (player.infection || 0) * .2));
+      player.nematodeLoad = 0;
+      player.fungalDamageCooldown = 1.8;
+      player.nematodeDamageCooldown = 1.8;
+      player.healCooldown = 2;
+      player.dashSuppressed = false;
+      player.airJumpAvailable = player.canDoubleJump;
+      player.invuln = 1.7;
+      state.respawnTimer = 0;
+      state.gameState = 'play';
+      state.toast = reason === 'death'
+        ? 'Respawn no último biofilme: Vitalidade restaurada; metade dos exsudatos foi perdida.'
+        : 'Retorno ao último ponto seguro.';
+      state.toastTime = 4.2;
     },
   };
 
@@ -121,6 +142,8 @@ export function createSimulator() {
   const azospirillumRootGrowth = createAzospirillumRootGrowth({ state, entities, inoculants: beneficialInoculants });
   const azospirillumRootSafety = createAzospirillumRootSafety({ state, rootGrowth: azospirillumRootGrowth });
   const meloidogyneLifecycle = createMeloidogyneLifecycle({ state, entities });
+  const pathogenSurvival = createPathogenSurvival({ state, entities, ecology });
+
   state.microbeEcology = ecology;
   state.mycorrhizaGrowth = mycorrhiza;
   state.mycorrhizaStructures = mycorrhizaStructures;
@@ -136,6 +159,7 @@ export function createSimulator() {
   state.meloidogyneLifecycle = meloidogyneLifecycle;
   state.goalSystem = goal;
   state.ecologicalGameplay = gameplay;
+  state.pathogenSurvival = pathogenSurvival;
 
   const physics = createPhysicsSystem({ state, input, entities, hud, audio });
 
@@ -145,6 +169,7 @@ export function createSimulator() {
     state.time = 0;
     state.currentCheckpoint = null;
     state.jumpHeldLast = false;
+    state.respawnTimer = 0;
     recruitment.clear();
     trichoderma.clear();
     trichodermaColonies.clear();
@@ -159,6 +184,7 @@ export function createSimulator() {
     mycorrhiza.clear();
     goal.clear();
     gameplay.clear();
+    pathogenSurvival.clear();
     state.level = createEmptyLevel();
     for (const key in input.keys) input.keys[key] = false;
   }
@@ -181,6 +207,7 @@ export function createSimulator() {
     bacillusBioprotection.reset();
     rhizobiumNodulation.reset();
     meloidogyneLifecycle.reset();
+    pathogenSurvival.reset();
   }
 
   function setInputs(newKeys) {
@@ -192,6 +219,7 @@ export function createSimulator() {
     trichodermaColonies.prepare(dt);
     beneficialInoculants.prepare(dt);
     gameplay.prepare(dt);
+    pathogenSurvival.prepare(dt);
     physics.update(dt);
     ecology.update(dt);
     recruitment.update(dt);
@@ -220,6 +248,7 @@ export function createSimulator() {
       : true;
     if (mycorrhizaStructuresUnlocked) mycorrhizaStructures.update(dt);
 
+    pathogenSurvival.update(dt);
     goal.update(dt);
     if (state.toastTime > 0) state.toastTime -= dt;
   }
@@ -229,7 +258,7 @@ export function createSimulator() {
     trichoderma, recruitment, trichodermaColonies, beneficialInoculants,
     pseudomonasSiderophores, bacillusBioprotection, bacillusBioprotectionSafety,
     rhizobiumNodulation, azospirillumRootGrowth, azospirillumRootSafety,
-    meloidogyneLifecycle, goal, gameplay,
+    meloidogyneLifecycle, pathogenSurvival, goal, gameplay,
     reset, resetEcology, resetBiology, setInputs, step,
   };
 }

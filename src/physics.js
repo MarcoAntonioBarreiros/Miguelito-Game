@@ -42,6 +42,148 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
     return color;
   }
 
+  function findEnemyHost(enemy, level) {
+    const centerX = enemy.x + enemy.w / 2;
+    let best = null;
+    let bestDistance = Infinity;
+    for (const platform of level.platforms) {
+      if (platform.final || platform.recovery || platform.mycorrhizaStructure) continue;
+      const pointX = clamp(centerX, platform.x, platform.x + platform.w);
+      const distance = Math.hypot(pointX - centerX, platform.y - (enemy.y + enemy.h));
+      if (distance < bestDistance) {
+        best = platform;
+        bestDistance = distance;
+      }
+    }
+    if (best) best.type = 'root';
+    return best;
+  }
+
+  function ensureRhizoctonia(enemy, level) {
+    if (enemy.type === 'rhizoctonia' && enemy.hostPlatform) return;
+    enemy.type = 'rhizoctonia';
+    enemy.maxHp = enemy.maxHp || 3;
+    enemy.hp = Number.isFinite(enemy.hp) ? enemy.hp : enemy.maxHp;
+    enemy.mode = enemy.mode || 'colonizing';
+    enemy.attackCharge = enemy.attackCharge || 0;
+    enemy.attackTime = enemy.attackTime || 0;
+    enemy.attackCooldown = enemy.attackCooldown || .5;
+    enemy.attackDirection = enemy.attackDirection || 1;
+    enemy.stun = enemy.stun || 0;
+    enemy.colonization = enemy.colonization || .18;
+    enemy.hostPlatform = enemy.hostPlatform || findEnemyHost(enemy, level);
+    enemy.homeX = enemy.homeX ?? enemy.x;
+    if (enemy.hostPlatform) {
+      enemy.left = enemy.hostPlatform.x + 14;
+      enemy.right = enemy.hostPlatform.x + enemy.hostPlatform.w - enemy.w - 14;
+      enemy.x = clamp(enemy.x, enemy.left, enemy.right);
+      enemy.y = enemy.hostPlatform.y - enemy.h - 5;
+    }
+  }
+
+  function hitRhizoctonia(enemy, player) {
+    ensureRhizoctonia(enemy, state.level);
+    if (!enemy.alive) return;
+    enemy.hp = Math.max(0, enemy.hp - 1);
+    enemy.stun = 1.05;
+    enemy.attackTime = 0;
+    enemy.attackCharge = 0;
+    enemy.mode = 'stunned';
+    entities.burst(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#ffb15c', 28, 210);
+
+    if (enemy.hp <= 0) {
+      enemy.alive = false;
+      if (enemy.hostPlatform) enemy.hostPlatform.rhizoctoniaPressure = 0;
+      player.soil += 4.5;
+      player.hope += 5;
+      state.toast = 'Rhizoctonia desestruturada: o foco de infecção foi interrompido. Trichoderma será uma resposta biológica mais eficiente nas próximas etapas.';
+      state.toastTime = 4.8;
+      entities.burst(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#8df0a8', 38, 235);
+    } else {
+      state.toast = `Pulso interrompeu Rhizoctonia: resistência ${enemy.hp}/${enemy.maxHp}.`;
+      state.toastTime = 3.2;
+    }
+  }
+
+  function updateRhizoctonia(enemy, dt, player, level) {
+    ensureRhizoctonia(enemy, level);
+    if (!enemy.alive || !enemy.hostPlatform) return;
+
+    const host = enemy.hostPlatform;
+    enemy.left = host.x + 14;
+    enemy.right = host.x + host.w - enemy.w - 14;
+    enemy.x = clamp(enemy.x, enemy.left, enemy.right);
+    enemy.y = host.y - enemy.h - 5;
+    enemy.attackCooldown = Math.max(0, enemy.attackCooldown - dt);
+    enemy.stun = Math.max(0, enemy.stun - dt);
+
+    const playerCenterX = player.x + player.w / 2;
+    const enemyCenterX = enemy.x + enemy.w / 2;
+    const dx = playerCenterX - enemyCenterX;
+    const horizontalDistance = Math.abs(dx);
+    const verticalDistance = Math.abs((player.y + player.h) - host.y);
+    const playerOnHostLevel = verticalDistance < 105;
+
+    enemy.colonization = clamp(enemy.colonization + dt * (enemy.stun > 0 ? -.025 : .018), .12, 1);
+    host.rhizoctoniaPressure = Math.max(
+      host.rhizoctoniaPressure || 0,
+      clamp(.12 + enemy.colonization * .58 + (enemy.mode === 'charging' ? .12 : 0), 0, 1),
+    );
+
+    if (enemy.stun > 0) {
+      enemy.mode = 'stunned';
+      return;
+    }
+
+    if (enemy.attackTime > 0) {
+      enemy.mode = 'lunge';
+      enemy.attackTime = Math.max(0, enemy.attackTime - dt);
+      enemy.x = clamp(enemy.x + enemy.attackDirection * 165 * dt, enemy.left, enemy.right);
+      if (enemy.attackTime <= 0) {
+        enemy.mode = 'recovering';
+        enemy.attackCooldown = Math.max(enemy.attackCooldown, 2.1);
+      }
+    } else if (playerOnHostLevel && horizontalDistance < 155 && enemy.attackCooldown <= 0) {
+      enemy.mode = 'charging';
+      enemy.attackCharge += dt;
+      enemy.attackDirection = Math.sign(dx) || enemy.attackDirection;
+      if (enemy.attackCharge >= .72) {
+        enemy.attackCharge = 0;
+        enemy.attackTime = .32;
+        enemy.attackCooldown = 2.5;
+        enemy.mode = 'lunge';
+        state.toast = 'Rhizoctonia formou uma almofada de infecção e lançou uma hifa de ataque.';
+        state.toastTime = 3.4;
+      }
+    } else {
+      enemy.attackCharge = Math.max(0, enemy.attackCharge - dt * 1.5);
+      enemy.mode = 'colonizing';
+      const direction = Math.sign(dx) || 1;
+      if (playerOnHostLevel && horizontalDistance < 330) {
+        enemy.x = clamp(enemy.x + direction * (17 + enemy.colonization * 9) * dt, enemy.left, enemy.right);
+      } else {
+        enemy.x += enemy.vx * dt * .42;
+        if (enemy.x <= enemy.left || enemy.x >= enemy.right) enemy.vx *= -1;
+        enemy.x = clamp(enemy.x, enemy.left, enemy.right);
+      }
+    }
+
+    if (rects(player, enemy) && player.invuln <= 0) {
+      const charged = enemy.mode === 'lunge' && enemy.attackTime > 0;
+      const damage = charged ? 2 : 1;
+      entities.damagePlayer?.(damage, charged ? 'ataque de Rhizoctonia' : 'contato com Rhizoctonia', {
+        infection: charged ? .24 : .11,
+        invuln: charged ? 1.25 : 1.05,
+        knockbackX: -enemy.attackDirection * (charged ? 360 : 255),
+        knockbackY: charged ? -310 : -245,
+      });
+      enemy.attackTime = 0;
+      enemy.attackCharge = 0;
+      enemy.attackCooldown = Math.max(enemy.attackCooldown, 2.2);
+      enemy.stun = .28;
+    }
+  }
+
   function update(dt) {
     state.time += dt;
     if (state.gameState !== 'play') return;
@@ -49,7 +191,8 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
     const player = state.player;
     const level = state.level;
     const keys = input.keys;
-    const moveMultiplier = clamp(player.moveMultiplier ?? 1, .58, 1);
+    const moveMultiplier = clamp(player.moveMultiplier ?? 1, .48, 1);
+    const jumpMultiplier = clamp(player.jumpMultiplier ?? 1, .68, 1);
 
     player.invuln = Math.max(0, player.invuln - dt);
     player.dashCooldown = Math.max(0, player.dashCooldown - dt);
@@ -79,12 +222,12 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
       player.vy += 1180 * dt;
       player.vy = Math.min(player.vy, 720);
       if (player.jumpBuffer > 0 && player.coyote > 0) {
-        player.vy = -465;
+        player.vy = -465 * jumpMultiplier;
         player.jumpBuffer = 0;
         player.coyote = 0;
         entities.burst(player.x + 16, player.y + 48, '#d9ffc1', 8, 80);
       } else if (player.jumpBuffer > 0 && player.canDoubleJump && player.airJumpAvailable) {
-        player.vy = -445;
+        player.vy = -445 * jumpMultiplier;
         player.jumpBuffer = 0;
         player.airJumpAvailable = false;
         entities.burst(player.x + 16, player.y + 39, '#72e8dd', 22, 165);
@@ -92,9 +235,15 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
       }
     }
 
-    if (player.canDash && (keys.ShiftLeft || keys.ShiftRight || keys.KeyJ) && player.dashCooldown <= 0 && player.dashTime <= 0) {
+    if (
+      player.canDash
+      && !player.dashSuppressed
+      && (keys.ShiftLeft || keys.ShiftRight || keys.KeyJ)
+      && player.dashCooldown <= 0
+      && player.dashTime <= 0
+    ) {
       player.dashTime = .16;
-      player.dashCooldown = .82;
+      player.dashCooldown = .82 * (player.dashCooldownMultiplier || 1);
       entities.burst(player.x + 16, player.y + 24, '#6ce7df', 16, 170);
       keys.ShiftLeft = keys.ShiftRight = keys.KeyJ = false;
     }
@@ -111,11 +260,11 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
           entities.burst(c.x + c.w / 2, c.y + c.h / 2, '#ffb15c', 34, 260);
         }
       });
-      level.enemies.forEach(e => {
-        if (e.alive && Math.hypot(e.x + e.w / 2 - (player.x + 16), e.y + e.h / 2 - (player.y + 24)) < 160) {
-          e.alive = false;
-          entities.burst(e.x + 20, e.y + 20, '#ff6f91', 24, 220);
-        }
+      level.enemies.forEach(enemy => {
+        if (
+          enemy.alive
+          && Math.hypot(enemy.x + enemy.w / 2 - (player.x + 16), enemy.y + enemy.h / 2 - (player.y + 24)) < 160
+        ) hitRhizoctonia(enemy, player);
       });
     }
 
@@ -170,7 +319,10 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
         }
       }
     }
-    if (player.y > 760 || level.hazards.some(h => rects(player, h))) entities.respawn(false);
+    if (player.y > 760 || level.hazards.some(h => rects(player, h))) {
+      entities.damagePlayer?.(player.maxVitality || 5, 'queda na zona hostil', { fatal: true, invuln: 0 });
+      return;
+    }
 
     level.exudates.forEach(o => {
       if (!o.taken && Math.hypot(o.x - (player.x + 16), o.y - (player.y + 24)) < 34) {
@@ -209,19 +361,11 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
         );
       }
     });
-    level.enemies.forEach(e => {
-      if (!e.alive) return;
-      e.x += e.vx * dt;
-      if (e.x < e.left || e.x > e.right) e.vx *= -1;
-      if (rects(player, e) && player.invuln <= 0) {
-        player.vx = -player.facing * 260;
-        player.vy = -260;
-        player.invuln = .9;
-        player.hope = Math.max(20, player.hope - 3);
-        state.shake = .25;
-        entities.burst(player.x + 16, player.y + 24, '#ff6f91', 16, 170);
-      }
-    });
+
+    for (const platform of level.platforms) {
+      if (platform.type === 'root') platform.rhizoctoniaPressure = 0;
+    }
+    level.enemies.forEach(enemy => updateRhizoctonia(enemy, dt, player, level));
 
     level.particles.forEach(p => {
       p.life -= dt;
