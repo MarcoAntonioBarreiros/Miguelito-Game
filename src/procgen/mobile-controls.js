@@ -1,6 +1,9 @@
-import { ensureTutorialInterface } from './tutorial-bootstrap.js';
-import { createTutorialManager } from './tutorial-manager.js';
-import { createTutorialTriggers } from './tutorial-triggers.js';
+import { ensureTutorialInterface } from './tutorial-bootstrap.js?v=20260716-4';
+import { createTutorialManager } from './tutorial-manager.js?v=20260716-4';
+import {
+  createTutorialTriggers,
+  TUTORIAL_RUNTIME_VERSION,
+} from './tutorial-triggers.js?v=20260716-4';
 
 ensureTutorialInterface();
 
@@ -139,7 +142,18 @@ function initializeTutorialSystem() {
     trichodermaRhizoctoniaControl: trichodermaRhizoctoniaAdapter,
   });
 
+  const libraryDescription = document.querySelector('.tutorial-library-description');
+  if (libraryDescription) {
+    libraryDescription.textContent = `Reabra os cartões já encontrados durante a campanha. Sistema didático v${TUTORIAL_RUNTIME_VERSION}`;
+  }
+
+  const resetTutorialsButton = document.querySelector('.tutorial-reset-seen');
+  resetTutorialsButton?.addEventListener('click', () => {
+    requestAnimationFrame(() => triggers.rearm());
+  });
+
   window.miguelitoTutorial = manager;
+  window.miguelitoTutorialVersion = TUTORIAL_RUNTIME_VERSION;
   window.miguelitoTutorialDiagnostics = triggers.diagnostics;
 
   // A apresentação precisa entrar na fila antes do primeiro sensor visual.
