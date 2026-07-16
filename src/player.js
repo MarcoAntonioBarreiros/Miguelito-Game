@@ -20,6 +20,20 @@ const initialPlayer = {
   exudates: 0,
   soil: 28,
   hope: 31,
+  maxVitality: 5,
+  vitality: 5,
+  infection: 0,
+  infectionExposure: 0,
+  fungalDamageCooldown: 0,
+  nematodeDamageCooldown: 0,
+  healCooldown: 0,
+  nematodeLoad: 0,
+  moveMultiplier: 1,
+  jumpMultiplier: 1,
+  dashCooldownMultiplier: 1,
+  dashSuppressed: false,
+  deathFlash: 0,
+  deaths: 0,
 };
 
 export function createPlayer() {
@@ -27,7 +41,9 @@ export function createPlayer() {
 }
 
 export function resetPlayer(player, unlocks = null) {
+  const deaths = player.deaths || 0;
   Object.assign(player, initialPlayer);
+  player.deaths = deaths;
   if (!unlocks) return;
   player.canDoubleJump = Boolean(unlocks.doubleJump);
   player.canDash = Boolean(unlocks.dash);
