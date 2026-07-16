@@ -224,6 +224,12 @@
       padding: 0;
       font-size: 15px;
     }
+    .mobile-tool.zoom-step { width: 30px; }
+    .mobile-tool.zoom-value {
+      width: 50px;
+      font-size: 10px;
+      letter-spacing: -.2px;
+    }
     .mobile-tool.active, .mobile-tool[aria-pressed="true"] {
       background: rgba(112,229,214,.74);
       color: #052128;
@@ -266,6 +272,9 @@
     <button class="mobile-tool" data-mobile-action="reset" aria-label="Gerar nova fase">↻</button>
     <button class="mobile-tool" data-mobile-action="debug" aria-label="Mostrar informações técnicas" aria-pressed="false">ⓘ</button>
     <button class="mobile-tool" data-mobile-action="fullscreen" aria-label="Tela cheia">⛶</button>
+    <button class="mobile-tool zoom-step" data-camera-action="out" aria-label="Afastar câmera">−</button>
+    <button class="mobile-tool zoom-value" data-camera-action="reset" data-camera-readout aria-label="Restaurar zoom padrão">1.45×</button>
+    <button class="mobile-tool zoom-step" data-camera-action="in" aria-label="Aproximar câmera">+</button>
   </div>
 
   <div id="touch-controls" hidden aria-label="Controles touch">
