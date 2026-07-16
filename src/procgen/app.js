@@ -4,6 +4,7 @@ import { createSimulator } from './simulator.js';
 import { createRenderer } from '../render/renderer.js';
 import { createPlatformVisuals } from './platform-visuals.js';
 import { createCameraView } from './camera-view.js';
+import { createRhizoctoniaControl } from './rhizoctonia-control.js';
 import {
   advanceCampaignPhase,
   campaignEncounterTypes,
@@ -29,6 +30,11 @@ let sim = createSimulator();
 const campaign = createCampaign();
 sim.state.campaign = campaign;
 const cameraView = createCameraView({ canvas, state: sim.state });
+const rhizoctoniaControl = createRhizoctoniaControl({
+  state: sim.state,
+  entities: sim.entities,
+  pseudomonas: sim.pseudomonasSiderophores,
+});
 let profile = null;
 let seed = '';
 let levelData = null;
@@ -132,6 +138,7 @@ function updateTouchAbilityVisibility() {
 
 function initGame({ announce = false } = {}) {
   sim.reset();
+  rhizoctoniaControl.reset();
   sim.state.campaign = campaign;
   Object.assign(sim.state.level, levelData);
   sim.state.player.x = 100;
@@ -234,6 +241,7 @@ function renderWorld() {
     cameraView.apply(ctx);
     renderer.render();
     platformVisuals.drawWorld(ctx);
+    rhizoctoniaControl.render(ctx);
     sim.pseudomonasSiderophores.renderDeposits(ctx);
     sim.ecology.render(ctx);
     sim.meloidogyneLifecycle.render(ctx);
@@ -259,8 +267,10 @@ function loop(now) {
     const dt = Math.max(0, Math.min((now - lastTime) / 1000, .1));
     lastTime = now;
 
+    rhizoctoniaControl.prepare(dt);
     sim.setInputs(keys);
     sim.step(dt);
+    rhizoctoniaControl.update(dt);
     maybeAdvanceCampaign();
     cameraView.update(dt);
     renderWorld();
@@ -297,7 +307,10 @@ function loop(now) {
     const nematodePressure = sim.meloidogyneLifecycle.infestationPercent > 2
       ? ` | Meloidogyne: ${sim.meloidogyneLifecycle.infestationPercent.toFixed(0)}%`
       : '';
-    hudBar.textContent = `F${campaign.phase} · ${campaign.totalScore} pts | Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exsudatos: ${player.exudates}${infection}${bacillusDefense}${nematodePressure}${abilities ? ' | ' + abilities : ''}`;
+    const rhizoctonia = rhizoctoniaControl.activeCount
+      ? ` | Rhizoctonia: ${rhizoctoniaControl.controlledCount}/${rhizoctoniaControl.activeCount} contida${rhizoctoniaControl.activeCount > 1 ? 's' : ''}`
+      : '';
+    hudBar.textContent = `F${campaign.phase} · ${campaign.totalScore} pts | Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exsudatos: ${player.exudates}${infection}${bacillusDefense}${nematodePressure}${rhizoctonia}${abilities ? ' | ' + abilities : ''}`;
 
     if (showDebug) {
       const logicIndex = currentLogicIndex();
@@ -312,6 +325,7 @@ function loop(now) {
         + `\nPoderes: salto ${campaign.unlocks.doubleJump ? '✓' : '—'} / dash ${campaign.unlocks.dash ? '✓' : '—'} / pulso ${campaign.unlocks.pulse ? '✓' : '—'} / pontes AM ${campaign.unlocks.mycorrhizaStructures ? '✓' : '—'} / raízes Azo ${campaign.unlocks.azospirillumRoots ? '✓' : '—'}`
         + `\nCâmera: ${cameraView.zoom.toFixed(2)}× [roda ou +/− | 0=restaurar]`
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
+        + `\nRhizoctonia: ${rhizoctoniaControl.activeCount} focos / ${rhizoctoniaControl.controlledCount} contidos por biocontrole`
         + `\nMeloidogyne: ${sim.meloidogyneLifecycle.eggMassCount} massas (${sim.meloidogyneLifecycle.eggCount} ovos) / ${sim.meloidogyneLifecycle.juvenileCount} J2 livres / ${sim.meloidogyneLifecycle.penetratingCount} penetrando`
         + `\nGalhas: ${sim.meloidogyneLifecycle.gallCount} totais / ${sim.meloidogyneLifecycle.matureGallCount} maduras / ${sim.meloidogyneLifecycle.femaleCount} fêmeas / saúde radicular média ${rootHealth}%`
         + `\nMicorriza AM: ${sim.mycorrhiza.tipCount} pontas / ${sim.mycorrhiza.branchCount} ramos / ${sim.mycorrhiza.arbusculeCount} arbúsculos`
