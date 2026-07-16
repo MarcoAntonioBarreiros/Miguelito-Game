@@ -140,6 +140,7 @@ function initializeTutorialSystem() {
   });
 
   window.miguelitoTutorial = manager;
+  window.miguelitoTutorialDiagnostics = triggers.diagnostics;
   setTimeout(() => triggers.showWelcome(), 350);
 
   function tutorialFrame() {
