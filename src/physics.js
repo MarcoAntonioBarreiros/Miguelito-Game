@@ -1,8 +1,47 @@
 import { PLAYER_MAX_X, W } from './core/constants.js';
 import { clamp, lerp, rects } from './core/math.js';
 import { microbeEncounters } from './data/microbes.js';
+import { unlockCampaignFeature } from './procgen/campaign-progression.js';
 
 export function createPhysicsSystem({ state, input, entities, hud, audio }) {
+  function collectCampaignUnlock(ally, player) {
+    const feature = ally.unlockFeature
+      || (ally.id === 'azo' ? 'doubleJump' : ally.id === 'myco' ? 'mycorrhizaStructures' : ally.id === 'phos' ? 'pulse' : ally.id === 'dash' ? 'dash' : null);
+    unlockCampaignFeature(state, feature);
+
+    let color = '#72e8dd';
+    if (feature === 'doubleJump') {
+      player.airJumpAvailable = true;
+      player.soil += 6;
+      player.hope += 5;
+      hud.setMission('Pratique o salto duplo e continue restaurando o solo');
+      entities.discoverMicrobe('azospirillum', false);
+    } else if (feature === 'dash') {
+      color = '#70e5d6';
+      player.soil += 7;
+      player.hope += 5;
+      hud.setMission('Combine salto duplo e dash para alcançar a primeira raiz principal');
+    } else if (feature === 'mycorrhizaStructures') {
+      color = '#d6afff';
+      player.soil += 8;
+      player.hope += 5;
+      hud.setMission('Libere exsudatos nas bordas para formar pontes e escadas micorrízicas');
+      entities.discoverMicrobe('myco', false);
+    } else if (feature === 'pulse') {
+      color = '#8db8ff';
+      player.soil += 9;
+      player.hope += 6;
+      hud.setMission('Use o pulso para romper cristais alaranjados e liberar minerais');
+      entities.discoverMicrobe('phos', false);
+    } else if (feature === 'azospirillumRoots') {
+      player.soil += 8;
+      player.hope += 6;
+      hud.setMission('Inocule Azospirillum em raízes e use exsudatos para orientar novas ramificações');
+      entities.discoverMicrobe('azospirillum', false);
+    }
+    return color;
+  }
+
   function update(dt) {
     state.time += dt;
     if (state.gameState !== 'play') return;
@@ -145,30 +184,9 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
     level.allies.forEach(a => {
       if (!a.taken && Math.hypot(a.x - (player.x + 16), a.y - (player.y + 24)) < 54) {
         a.taken = true;
-        let color = '#72e8dd';
-        if (a.id === 'azo') {
-          player.canDoubleJump = true;
-          player.airJumpAvailable = true;
-          player.soil += 6;
-          player.hope += 5;
-          hud.setMission('Use o salto duplo para alcançar a Micorriza');
-          entities.discoverMicrobe('azospirillum', false);
-        } else if (a.id === 'myco') {
-          player.canDash = true;
-          player.soil += 8;
-          color = '#d6afff';
-          hud.setMission('Atravesse o Cofre do Fósforo');
-          entities.discoverMicrobe('myco', false);
-        } else {
-          player.canPulse = true;
-          player.soil += 9;
-          player.hope += 6;
-          color = '#8db8ff';
-          hud.setMission('Rompa os cristais e alcance a raiz principal');
-          entities.discoverMicrobe('phos', false);
-        }
+        const color = collectCampaignUnlock(a, player);
         entities.burst(a.x, a.y, color, 42, 250);
-        hud.showToast(a.name, a.desc, 4700);
+        hud.showToast(a.name || 'Novo mecanismo desbloqueado', a.desc || 'Uma nova função do solo vivo foi liberada.', 4700);
         hud.updateHud();
       }
     });
@@ -220,12 +238,7 @@ export function createPhysicsSystem({ state, input, entities, hud, audio }) {
     for (let i = level.pulses.length - 1; i >= 0; i--) if (level.pulses[i].life <= 0) level.pulses.splice(i, 1);
 
     const endX = level.endX !== undefined ? level.endX : 4590;
-    if (player.x > endX) {
-      state.gameState = 'end';
-      hud.showEnd();
-      hud.setMission('Fase concluída');
-    }
-    if (player.x > 3600 && player.canPulse && level.endX === undefined) hud.setMission('Leve a energia mineral até a raiz principal');
+    if (player.x > endX) player.x = endX - player.w;
 
     const maxCameraX = level.cameraMaxX !== undefined ? level.cameraMaxX : (4900 - W);
     state.cameraX = lerp(state.cameraX, clamp(player.x - 360, 0, maxCameraX), 1 - Math.pow(.0001, dt));

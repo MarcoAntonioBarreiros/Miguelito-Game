@@ -1,82 +1,84 @@
+let activeProfile = null;
+
+export function setLogicCampaignProfile(profile) {
+  activeProfile = profile;
+}
+
+function weightedAbility(rnd, abilities, theme) {
+  const weighted = [];
+  for (const ability of abilities) {
+    let weight = 1;
+    if (theme === 'mineral' && ability === 'pulse') weight = 3;
+    if (theme === 'arquitetura' && (ability === 'doubleJump' || ability === 'dash')) weight = 2;
+    if (theme === 'infestação' && ability === 'dash') weight = 1.6;
+    for (let i = 0; i < Math.ceil(weight * 2); i++) weighted.push(ability);
+  }
+  return weighted[Math.floor(rnd() * weighted.length)] || null;
+}
+
 export function generateLogicGraph(rnd) {
+  const profile = activeProfile || {
+    phase: 1,
+    theme: 'fundamentos',
+    totalChunks: 40,
+    unlockEvents: [
+      { chunk: 8, allyId: 'azo', feature: 'doubleJump' },
+      { chunk: 25, allyId: 'dash', feature: 'dash' },
+    ],
+    initialAbilities: [],
+    hardChance: .08,
+    enemyChance: .12,
+    skillRequirementChance: .56,
+  };
+
   const chunks = [];
-  const totalChunks = 40;
-  
-  // Progression milestones (adjusted for 40 chunks)
-  const DOUBLE_JUMP_CHUNK = 8;
-  const DASH_CHUNK = 20;
-  const PULSE_CHUNK = 32;
-  
-  let currentAbilities = [];
+  const events = new Map(profile.unlockEvents.map(event => [event.chunk, event]));
+  const movementFeatures = new Set(['doubleJump', 'dash', 'pulse']);
+  const currentAbilities = [...profile.initialAbilities];
 
-  for (let i = 0; i < totalChunks; i++) {
-    // Progressão de habilidades
-    if (i === DOUBLE_JUMP_CHUNK && !currentAbilities.includes('doubleJump')) {
-      currentAbilities.push('doubleJump');
-    }
-    if (i === DASH_CHUNK && !currentAbilities.includes('dash')) {
-      currentAbilities.push('dash');
-    }
-    if (i === PULSE_CHUNK && !currentAbilities.includes('pulse')) {
-      currentAbilities.push('pulse');
-    }
-
-    let isSkillNode = false;
+  for (let i = 0; i < profile.totalChunks; i++) {
+    const event = events.get(i) || null;
     let requiredAbility = null;
+    let isSkillNode = false;
+
+    for (const unlockEvent of profile.unlockEvents) {
+      if (!movementFeatures.has(unlockEvent.feature)) continue;
+      if (i >= unlockEvent.chunk + 1 && i <= unlockEvent.chunk + 3) {
+        requiredAbility = unlockEvent.feature;
+        isSkillNode = true;
+        break;
+      }
+    }
+
+    if (!requiredAbility && !event && currentAbilities.length > 0 && rnd() < profile.skillRequirementChance) {
+      requiredAbility = weightedAbility(rnd, currentAbilities, profile.theme);
+    }
+
     let difficultyTarget = 'comfortable';
-    let allyId = null;
+    if (!event && !isSkillNode && i > 3 && rnd() < profile.hardChance) difficultyTarget = 'hard';
+
     let isCheckpoint = false;
+    if (i > 0 && i % 7 === 0 && !event) isCheckpoint = true;
+
     let hasEnemy = false;
-
-    // Ally placement at skill milestones
-    if (i === DOUBLE_JUMP_CHUNK) allyId = 'azo';
-    if (i === DASH_CHUNK) allyId = 'myco';
-    if (i === PULSE_CHUNK) allyId = 'phos';
-    
-    // Checkpoints every 7 chunks (except at ally chunks)
-    if (i > 0 && i % 7 === 0 && !allyId) {
-      isCheckpoint = true;
-    }
-
-    // Skill introduction windows (3 chunks of guided practice after each ability)
-    if (i >= DOUBLE_JUMP_CHUNK && i <= DOUBLE_JUMP_CHUNK + 2) {
-      isSkillNode = true;
-      requiredAbility = 'doubleJump';
-    } else if (i >= DASH_CHUNK && i <= DASH_CHUNK + 2) {
-      isSkillNode = true;
-      requiredAbility = 'dash';
-    } else if (i >= PULSE_CHUNK && i <= PULSE_CHUNK + 2) {
-      isSkillNode = true;
-      requiredAbility = 'pulse';
-    } else {
-      // Normal chunk — randomly select abilities to test
-      if (currentAbilities.length > 0) {
-        if (rnd() > 0.4) { // 60% chance to require a skill
-          const idx = Math.floor(rnd() * currentAbilities.length);
-          requiredAbility = currentAbilities[idx];
-        }
-      }
-      
-      // 12% chance of hard transition (not on special chunks)
-      if (rnd() < 0.12 && !allyId && !isCheckpoint && i > 3) {
-        difficultyTarget = 'hard';
-      }
-      
-      // 18% chance of enemy on comfortable normal chunks
-      if (rnd() < 0.18 && difficultyTarget === 'comfortable' && !allyId && !isCheckpoint && i > 4) {
-        hasEnemy = true;
-      }
-    }
+    if (!event && !isCheckpoint && !isSkillNode && i > 4 && rnd() < profile.enemyChance) hasEnemy = true;
 
     chunks.push({
       index: i,
       requires: requiredAbility ? [requiredAbility] : [],
       difficultyTarget,
       isSkillIntro: isSkillNode,
-      allyId,
+      allyId: event?.allyId || null,
+      unlockFeature: event?.feature || null,
       isCheckpoint,
-      hasEnemy
+      hasEnemy,
+      campaignPhase: profile.phase,
+      phaseTheme: profile.theme,
     });
+
+    if (event && movementFeatures.has(event.feature) && !currentAbilities.includes(event.feature)) {
+      currentAbilities.push(event.feature);
+    }
   }
 
   return chunks;

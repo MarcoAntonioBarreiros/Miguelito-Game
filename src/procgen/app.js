@@ -4,6 +4,16 @@ import { createSimulator } from './simulator.js';
 import { createRenderer } from '../render/renderer.js';
 import { createPlatformVisuals } from './platform-visuals.js';
 import { createCameraView } from './camera-view.js';
+import {
+  advanceCampaignPhase,
+  campaignEncounterTypes,
+  campaignPhaseSeed,
+  createCampaign,
+  decorateCampaignLevel,
+  prepareCampaignGeneration,
+  recordPhaseResult,
+  resetCampaign,
+} from './campaign-progression.js';
 import { microbeEncounters } from '../data/microbes.js';
 
 const canvas = document.querySelector('canvas');
@@ -12,14 +22,21 @@ const debugDiv = document.getElementById('debug');
 const missionDiv = document.getElementById('mission');
 const hudBar = document.getElementById('hud-bar');
 const toastDiv = document.getElementById('toast');
+const dashTouchButton = document.querySelector('[data-key="ShiftLeft"]');
+const pulseTouchButton = document.querySelector('[data-key="KeyK"]');
 
-let seed = 'solo-vivo-' + Math.floor(Math.random() * 1000);
-let levelData = generateLevel(seed);
 let sim = createSimulator();
+const campaign = createCampaign();
+sim.state.campaign = campaign;
 const cameraView = createCameraView({ canvas, state: sim.state });
+let profile = null;
+let seed = '';
+let levelData = null;
 let renderer = null;
 let platformVisuals = null;
 let showDebug = true;
+let lastTime = performance.now();
+let lastToast = '';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -59,7 +76,7 @@ function shuffledBag(types, random) {
 function populateMicrobeEncounters(platforms, seedValue) {
   microbeEncounters.length = 0;
   const random = createRandom(`${seedValue}:microbe-communities`);
-  const types = ['rhizobium', 'oportunista', 'trichoderma', 'pseudomonas', 'azospirillum', 'bacillus'];
+  const types = campaignEncounterTypes(campaign);
   const candidates = platforms.filter(platform => !platform.recovery && !platform.final && platform.logicIndex >= 1 && platform.w >= 100);
   let bag = shuffledBag(types, random);
   let previousType = null;
@@ -88,14 +105,39 @@ function populateMicrobeEncounters(platforms, seedValue) {
   }
 }
 
-function initGame() {
+function prepareLevel() {
+  profile = prepareCampaignGeneration(campaign);
+  seed = campaignPhaseSeed(campaign);
+  levelData = decorateCampaignLevel(generateLevel(seed), campaign, profile);
   installFinalGoal(levelData);
+}
+
+function phaseIntroText() {
+  if (campaign.phase === 1) return 'Salto duplo e dash serão liberados ao longo desta fase.';
+  if (campaign.phase === 2) return 'Pontes micorrízicas e pulso mineral serão liberados nesta fase.';
+  if (campaign.phase === 3) return 'A indução de raízes laterais por Azospirillum será liberada nesta fase.';
+  return `Todos os mecanismos estão ativos. Tema procedural: ${profile.theme}.`;
+}
+
+function updateTouchAbilityVisibility() {
+  if (dashTouchButton) {
+    dashTouchButton.hidden = !sim.state.player.canDash;
+    dashTouchButton.disabled = !sim.state.player.canDash;
+  }
+  if (pulseTouchButton) {
+    pulseTouchButton.hidden = !sim.state.player.canPulse;
+    pulseTouchButton.disabled = !sim.state.player.canPulse;
+  }
+}
+
+function initGame({ announce = false } = {}) {
   sim.reset();
+  sim.state.campaign = campaign;
   Object.assign(sim.state.level, levelData);
   sim.state.player.x = 100;
   sim.state.player.y = 400;
   sim.state.gameState = 'play';
-  sim.state.mission = 'Restaure o solo vivo e observe as raízes infestadas por Meloidogyne';
+  sim.state.mission = profile.mission;
   cameraView.resetTracking();
   populateMicrobeEncounters(levelData.platforms, seed);
   sim.resetEcology(microbeEncounters);
@@ -104,18 +146,70 @@ function initGame() {
   renderer = createRenderer({ canvas, state: sim.state, entities: sim.entities });
   platformVisuals = createPlatformVisuals({ state: sim.state });
   toastDiv.className = '';
+  lastToast = '';
+  updateTouchAbilityVisibility();
+
+  if (announce) {
+    sim.state.toast = `Fase ${campaign.phase} — ${profile.title}: ${phaseIntroText()}`;
+    sim.state.toastTime = 6;
+  }
 }
 
-initGame();
+function startNewCampaign() {
+  resetCampaign(campaign);
+  sim.state.discoveredMicrobes.clear();
+  prepareLevel();
+  initGame({ announce: true });
+}
+
+function buildPhaseReport() {
+  const rootHealth = clamp(sim.meloidogyneLifecycle.rootHealthAverage || 0, 0, 1);
+  const infestation = clamp((sim.meloidogyneLifecycle.infestationPercent || 0) / 100, 0, 1);
+  const fixation = Math.max(0, sim.rhizobiumNodulation.fixationRate || 0);
+  const protection = Math.min(1, (sim.bacillusBioprotection.protectedRootCount || 0) / 4);
+  const score = Math.round(
+    rootHealth * 45
+    + (1 - infestation) * 25
+    + Math.min(1, fixation / 10) * 15
+    + protection * 15,
+  );
+  return {
+    phase: campaign.phase,
+    title: profile.title,
+    theme: profile.theme,
+    rootHealth: Math.round(rootHealth * 100),
+    infestation: Math.round(infestation * 100),
+    fixation: Number(fixation.toFixed(1)),
+    protectedRoots: sim.bacillusBioprotection.protectedRootCount || 0,
+    score,
+  };
+}
+
+function maybeAdvanceCampaign() {
+  if (!campaign.transitionRequested) return false;
+
+  if (!campaign.transitionCaptured) {
+    const report = buildPhaseReport();
+    recordPhaseResult(campaign, report);
+    sim.state.toast = `Fase ${report.phase}: ${report.score} pontos · saúde ${report.rootHealth}% · infestação ${report.infestation}%`;
+    sim.state.toastTime = 3.4;
+  }
+
+  if (sim.state.time < campaign.transitionAt) return false;
+
+  advanceCampaignPhase(campaign);
+  prepareLevel();
+  initGame({ announce: true });
+  return true;
+}
+
+prepareLevel();
+initGame({ announce: true });
 
 const keys = {};
 window.addEventListener('keydown', event => {
   keys[event.code] = true;
-  if (event.code === 'KeyR') {
-    seed = 'solo-vivo-' + Math.floor(Math.random() * 100000);
-    levelData = generateLevel(seed);
-    initGame();
-  }
+  if (event.code === 'KeyR' && !event.repeat) startNewCampaign();
   if (event.code === 'Tab') {
     event.preventDefault();
     showDebug = !showDebug;
@@ -123,9 +217,6 @@ window.addEventListener('keydown', event => {
   }
 });
 window.addEventListener('keyup', event => { keys[event.code] = false; });
-
-let lastTime = performance.now();
-let lastToast = '';
 
 function currentLogicIndex() {
   let logicIndex = -1;
@@ -170,10 +261,12 @@ function loop(now) {
 
     sim.setInputs(keys);
     sim.step(dt);
+    maybeAdvanceCampaign();
     cameraView.update(dt);
     renderWorld();
+    updateTouchAbilityVisibility();
 
-    if (sim.state.mission) missionDiv.textContent = '🌱 ' + sim.state.mission;
+    if (sim.state.mission) missionDiv.textContent = `🌱 Fase ${campaign.phase}: ${sim.state.mission}`;
 
     if (sim.state.toastTime > 0 && sim.state.toast && sim.state.toast !== lastToast) {
       toastDiv.textContent = sim.state.toast;
@@ -204,7 +297,7 @@ function loop(now) {
     const nematodePressure = sim.meloidogyneLifecycle.infestationPercent > 2
       ? ` | Meloidogyne: ${sim.meloidogyneLifecycle.infestationPercent.toFixed(0)}%`
       : '';
-    hudBar.textContent = `Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exudatos: ${player.exudates}${infection}${bacillusDefense}${nematodePressure}${abilities ? ' | ' + abilities : ''}`;
+    hudBar.textContent = `F${campaign.phase} · ${campaign.totalScore} pts | Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exsudatos: ${player.exudates}${infection}${bacillusDefense}${nematodePressure}${abilities ? ' | ' + abilities : ''}`;
 
     if (showDebug) {
       const logicIndex = currentLogicIndex();
@@ -214,8 +307,9 @@ function loop(now) {
       const fixation = sim.rhizobiumNodulation.fixationRate.toFixed(1);
       const ironRecovered = sim.pseudomonasSiderophores.ironRecovered.toFixed(1);
       const rootHealth = Math.round(sim.meloidogyneLifecycle.rootHealthAverage * 100);
-      debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
+      debugDiv.textContent = `CAMPANHA: ${campaign.seed} | Fase ${campaign.phase} — ${profile.title} [${profile.theme}]\nSEED: ${seed} [R=nova campanha | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
         + (info ? ` | ${info.primitive} | ${info.logic.difficultyTarget} | vão ${info.gap}px` : '')
+        + `\nPoderes: salto ${campaign.unlocks.doubleJump ? '✓' : '—'} / dash ${campaign.unlocks.dash ? '✓' : '—'} / pulso ${campaign.unlocks.pulse ? '✓' : '—'} / pontes AM ${campaign.unlocks.mycorrhizaStructures ? '✓' : '—'} / raízes Azo ${campaign.unlocks.azospirillumRoots ? '✓' : '—'}`
         + `\nCâmera: ${cameraView.zoom.toFixed(2)}× [roda ou +/− | 0=restaurar]`
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
         + `\nMeloidogyne: ${sim.meloidogyneLifecycle.eggMassCount} massas (${sim.meloidogyneLifecycle.eggCount} ovos) / ${sim.meloidogyneLifecycle.juvenileCount} J2 livres / ${sim.meloidogyneLifecycle.penetratingCount} penetrando`

@@ -26,6 +26,11 @@ export function createPlayer() {
   return { ...initialPlayer };
 }
 
-export function resetPlayer(player) {
+export function resetPlayer(player, unlocks = null) {
   Object.assign(player, initialPlayer);
+  if (!unlocks) return;
+  player.canDoubleJump = Boolean(unlocks.doubleJump);
+  player.canDash = Boolean(unlocks.dash);
+  player.canPulse = Boolean(unlocks.pulse);
+  player.airJumpAvailable = player.canDoubleJump;
 }

@@ -18,21 +18,26 @@ import { createMeloidogyneLifecycle } from './meloidogyne-lifecycle.js';
 import { createGoalSystem } from './goal-system.js';
 import { createEcologicalGameplay } from './ecological-gameplay.js';
 
+function createEmptyLevel() {
+  return {
+    platforms: [], hazards: [], crystals: [], enemies: [], exudates: [],
+    allies: [], checkpoints: [], particles: [], pulses: [], goal: null,
+    exudateClouds: [], biofilms: [], beneficialColonies: [], rhizobiumNodules: [],
+    azospirillumRoots: [], ironDeposits: [], siderophores: [],
+    nematodeEggMasses: [], nematodeJuveniles: [], rootGalls: [],
+  };
+}
+
 export function createSimulator() {
   const state = {
     time: 0,
     gameState: 'play',
     player: createPlayer(),
-    level: {
-      platforms: [], hazards: [], crystals: [], enemies: [], exudates: [],
-      allies: [], checkpoints: [], particles: [], pulses: [], goal: null,
-      exudateClouds: [], biofilms: [], beneficialColonies: [], rhizobiumNodules: [],
-      azospirillumRoots: [], ironDeposits: [], siderophores: [],
-      nematodeEggMasses: [], nematodeJuveniles: [], rootGalls: [],
-    },
+    level: createEmptyLevel(),
     jumpHeldLast: false,
     discoveredMicrobes: new Set(),
     microbeArt: createMicrobeArt(),
+    campaign: null,
     cameraX: 0,
     shake: 0,
   };
@@ -135,10 +140,11 @@ export function createSimulator() {
   const physics = createPhysicsSystem({ state, input, entities, hud, audio });
 
   function reset() {
-    resetPlayer(state.player);
+    resetPlayer(state.player, state.campaign?.unlocks);
     state.player.alive = true;
     state.time = 0;
     state.currentCheckpoint = null;
+    state.jumpHeldLast = false;
     recruitment.clear();
     trichoderma.clear();
     trichodermaColonies.clear();
@@ -153,8 +159,7 @@ export function createSimulator() {
     mycorrhiza.clear();
     goal.clear();
     gameplay.clear();
-    state.level.platforms = [];
-    state.level.hazards = [];
+    state.level = createEmptyLevel();
     for (const key in input.keys) input.keys[key] = false;
   }
 
@@ -192,8 +197,15 @@ export function createSimulator() {
     recruitment.update(dt);
     beneficialInoculants.update(dt);
     pseudomonasSiderophores.update(dt);
-    azospirillumRootGrowth.update(dt);
-    azospirillumRootSafety.update(dt);
+
+    const azospirillumRootsUnlocked = state.campaign
+      ? Boolean(state.campaign.unlocks.azospirillumRoots)
+      : true;
+    if (azospirillumRootsUnlocked) {
+      azospirillumRootGrowth.update(dt);
+      azospirillumRootSafety.update(dt);
+    }
+
     rhizobiumNodulation.update(dt);
     trichodermaColonies.update(dt);
     gameplay.update(dt);
@@ -202,7 +214,12 @@ export function createSimulator() {
     meloidogyneLifecycle.update(dt);
     trichoderma.update(dt);
     mycorrhiza.update(dt);
-    mycorrhizaStructures.update(dt);
+
+    const mycorrhizaStructuresUnlocked = state.campaign
+      ? Boolean(state.campaign.unlocks.mycorrhizaStructures)
+      : true;
+    if (mycorrhizaStructuresUnlocked) mycorrhizaStructures.update(dt);
+
     goal.update(dt);
     if (state.toastTime > 0) state.toastTime -= dt;
   }
