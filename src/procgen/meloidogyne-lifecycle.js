@@ -1,4 +1,5 @@
 import { W } from '../core/constants.js';
+import { createRootHealthGameplay } from './root-health-gameplay.js';
 
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -10,6 +11,7 @@ const pointOnRoot = (p, x) => ({ x: clamp(x, p.x + 18, p.x + p.w - 18), y: p.y -
 
 export function createMeloidogyneLifecycle({ state, entities }) {
   const eggs = [], juveniles = [], galls = [];
+  const rootGameplay = createRootHealthGameplay({ state, entities });
   let eggId = 1, juvenileId = 1, gallId = 1, lastToast = -Infinity;
   let healthAverage = 1, infestation = 0;
 
@@ -58,6 +60,7 @@ export function createMeloidogyneLifecycle({ state, entities }) {
   }
 
   function clear() {
+    rootGameplay.clear();
     eggs.length = juveniles.length = galls.length = 0;
     for (const p of state.level.platforms || []) {
       delete p.rootHealth; delete p.rootDamage; delete p.carbonAvailability;
@@ -70,7 +73,7 @@ export function createMeloidogyneLifecycle({ state, entities }) {
     eggs.length = juveniles.length = galls.length = 0;
     eggId = juvenileId = gallId = 1; lastToast = -Infinity;
     for (const p of roots()) prepareRoot(p);
-    expose(); seedInfestation();
+    expose(); seedInfestation(); rootGameplay.reset();
   }
 
   function spawnJ2(mass) {
@@ -182,6 +185,7 @@ export function createMeloidogyneLifecycle({ state, entities }) {
       id: `melo-gall-${gallId++}`, platform: p, x: j.feedingX, y: p.y + Math.min(22, p.h * .34),
       generation: j.generation, progress: .04, age: 0, stage: 'feeding-site', femaleMaturity: 0,
       eggTimer: 10 + Math.random() * 4, eggMassesLaid: 0, phase: Math.random() * TAU,
+      permanentPenalty: 0, adultDrain: 0, adultAnnounced: false,
     });
     j.alive = false; entities.burst(j.feedingX, p.y + 4, '#ffb08f', 16, 78);
     announce('Sítio de alimentação: células gigantes começaram a sustentar a formação da galha.', 5.5);
@@ -219,17 +223,24 @@ export function createMeloidogyneLifecycle({ state, entities }) {
   }
   function layEggs(g) {
     if (g.generation >= 2 || g.eggMassesLaid || eggs.length >= 8) return;
-    const x = clamp(g.x + 17, g.platform.x + 20, g.platform.x + g.platform.w - 20);
+    const x = clamp(g.x + 22, g.platform.x + 20, g.platform.x + g.platform.w - 20);
     addEggMass(g.platform, x, g.generation + 1, g.id); g.eggMassesLaid = 1;
     entities.burst(x, g.platform.y - 6, '#ffe0a6', 18, 72);
-    announce('Nova massa de ovos: a fêmea sedentária completou o ciclo e iniciou outra geração.', 5.5);
+    announce('Nova massa de ovos: a fêmea adulta completou o ciclo e iniciou outra geração.', 5.5);
   }
   function updateGalls(dt) {
     for (const g of galls) {
-      g.age += dt; g.x = clamp(g.x, g.platform.x + 24, g.platform.x + g.platform.w - 24);
+      g.age += dt; g.x = clamp(g.x, g.platform.x + 28, g.platform.x + g.platform.w - 28);
+      g.y = g.platform.y + Math.min(22, g.platform.h * .34);
       if (g.progress < 1) g.progress = clamp(g.progress + dt * (.045 + (1 - clamp(g.platform.rootHealth ?? 1, .15, 1)) * .012), 0, 1);
       else { g.femaleMaturity = clamp(g.femaleMaturity + dt * .09, 0, 1); g.eggTimer -= dt; if (g.femaleMaturity >= .8 && g.eggTimer <= 0) layEggs(g); }
       g.stage = stage(g);
+      g.permanentPenalty = g.progress >= .78 ? .12 + (g.eggMassesLaid ? .035 : 0) : g.progress >= .5 ? .065 : 0;
+      g.adultDrain = g.progress >= .78 ? .085 + g.femaleMaturity * .035 : 0;
+      if (g.progress >= .78 && !g.adultAnnounced) {
+        g.adultAnnounced = true;
+        announce('Fêmea adulta de Meloidogyne: o corpo sedentário drena continuamente a raiz, reduz a recuperação e deixa dano permanente.', 6);
+      }
     }
   }
 
@@ -238,28 +249,30 @@ export function createMeloidogyneLifecycle({ state, entities }) {
     return x >= p.x - 4 && x <= p.x + p.w + 4 && Math.abs(feet - p.y) < 18;
   }
   function updateRoots(dt) {
-    const list = roots(); let sum = 0, pressure = 0;
+    const list = roots(); let pressure = 0;
     for (const p of list) {
       prepareRoot(p);
       const pg = galls.filter(g => g.platform === p);
       const invading = juveniles.filter(j => j.targetRoot === p && j.state !== 'seeking').length;
-      const burden = pg.reduce((v, g) => v + .1 + g.progress * .18 + g.eggMassesLaid * .04, 0) + invading * .035;
-      const target = clamp(burden, 0, .88), response = target > p.rootDamage ? 1.5 : .035;
-      p.rootDamage = clamp(p.rootDamage + (target - p.rootDamage) * clamp(dt * response, 0, 1), 0, .88);
-      p.rootHealth = clamp(1 - p.rootDamage, .12, 1);
-      p.carbonAvailability = clamp(p.rootHealth * (1 - pg.length * .035), .1, 1);
-      p.nutrientEfficiency = clamp(p.rootHealth * (1 - pg.length * .05), .08, 1);
-      p.meloidogyneBurden = burden;
-      p.meloidogyneStage = pg.length ? (pg.some(g => g.progress >= 1) ? 'galha com fêmea' : 'galha em formação') : invading ? 'penetração ativa' : 'saudável';
+      const burden = pg.reduce((value, g) => value + .1 + g.progress * .18 + g.adultDrain + g.eggMassesLaid * .055, 0) + invading * .035;
+      p.meloidogyneBurden = clamp(burden, 0, .95);
+      p.meloidogyneStage = pg.length ? (pg.some(g => g.progress >= .78) ? 'fêmea adulta sedentária' : pg.some(g => g.progress >= .5) ? 'galha madura' : 'galha em formação') : invading ? 'penetração ativa' : 'saudável';
+      pressure += burden;
+    }
+
+    rootGameplay.update(dt, galls);
+    healthAverage = rootGameplay.averageHealth;
+    infestation = list.length ? clamp(pressure / list.length, 0, 1) : 0;
+
+    for (const p of list) {
+      p.carbonAvailability = clamp(Math.min(p.carbonAvailability ?? 1, p.rootHealth * (p.vascularEfficiency ?? 1)), .05, 1);
+      p.nutrientEfficiency = clamp(Math.min(p.nutrientEfficiency ?? 1, p.rootHealth * (p.mycorrhizaEfficiency ?? 1)), .04, 1);
       if (standingOn(p) && p.rootHealth < .82) {
         const stress = 1 - p.rootHealth;
         state.player.hope = Math.max(0, state.player.hope - dt * stress * .16);
         state.player.soil = Math.max(0, state.player.soil - dt * stress * .065);
       }
-      sum += p.rootHealth; pressure += burden;
     }
-    healthAverage = list.length ? sum / list.length : 1;
-    infestation = list.length ? clamp(pressure / list.length, 0, 1) : 0;
   }
 
   function update(dt) {
@@ -274,39 +287,91 @@ export function createMeloidogyneLifecycle({ state, entities }) {
     ctx.save(); ctx.translate(m.x, m.y); ctx.globalAlpha = empty ? clamp(1 - m.emptyAge / 11, 0, .55) : 1;
     ctx.fillStyle = neutralized ? 'rgba(94,181,116,.24)' : empty ? 'rgba(180,132,105,.22)' : 'rgba(255,213,155,.28)';
     ctx.strokeStyle = neutralized ? 'rgba(141,240,168,.82)' : empty ? 'rgba(199,157,128,.25)' : 'rgba(255,235,196,.82)';
-    ctx.beginPath(); ctx.ellipse(0, -2, 14 + ratio * 5, 8 + ratio * 3, 0, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0, -2, 16 + ratio * 6, 9 + ratio * 4, 0, 0, TAU); ctx.fill(); ctx.stroke();
     for (let i = 0; i < Math.max(2, m.eggs); i++) {
       const a = i / Math.max(2, m.eggs) * TAU + m.phase, r = 3 + i % 3 * 3;
-      ctx.fillStyle = neutralized ? '#9dd7a8' : i % 2 ? '#fff0cf' : '#ffd7a0'; ctx.beginPath(); ctx.ellipse(Math.cos(a) * r, -2 + Math.sin(a) * r * .48, 2.4, 1.7, a, 0, TAU); ctx.fill();
+      ctx.fillStyle = neutralized ? '#9dd7a8' : i % 2 ? '#fff0cf' : '#ffd7a0'; ctx.beginPath(); ctx.ellipse(Math.cos(a) * r, -2 + Math.sin(a) * r * .48, 2.7, 1.9, a, 0, TAU); ctx.fill();
     }
     ctx.font = '700 8px Inter,system-ui'; ctx.textAlign = 'center';
-    if (neutralized) { ctx.fillStyle = '#baffc7'; ctx.fillText('massa neutralizada', 0, -15); }
-    else if (!empty) { ctx.fillStyle = '#fff0cf'; ctx.fillText(`ovos ${m.eggs}`, 0, -15); }
+    if (neutralized) { ctx.fillStyle = '#baffc7'; ctx.fillText('massa neutralizada', 0, -17); }
+    else if (!empty) { ctx.fillStyle = '#fff0cf'; ctx.fillText(`ovos ${m.eggs}`, 0, -17); }
     ctx.restore();
   }
   function drawJ2(ctx, j) {
     const caught = Boolean(j.trichodermaCaught);
     const embedded = j.state !== 'seeking', a = Math.atan2(j.vy || 0, j.vx || 1);
-    ctx.save(); ctx.translate(j.x, j.y); ctx.rotate(a); ctx.strokeStyle = caught ? '#8df0a8' : embedded ? '#ffa197' : '#fff1d5'; ctx.lineWidth = caught ? 2.2 : embedded ? 2.1 : 1.6;
-    ctx.beginPath(); for (let i = 0; i <= 12; i++) { const t = i / 12, x = (t - .5) * 25, y = Math.sin(t * Math.PI * 3 + state.time * 7 + j.phase) * (embedded ? 1.5 : caught ? .7 : 2.6); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke();
-    ctx.fillStyle = caught ? '#d6ff94' : '#ffcab8'; ctx.beginPath(); ctx.arc(12.5, 0, 1.9, 0, TAU); ctx.fill(); ctx.restore();
+    const length = embedded ? 34 : 42;
+    ctx.save(); ctx.translate(j.x, j.y); ctx.rotate(a);
+    ctx.shadowBlur = caught ? 10 : embedded ? 7 : 5;
+    ctx.shadowColor = caught ? '#8df0a8' : embedded ? '#ff9f8f' : '#fff0cf';
+    ctx.strokeStyle = caught ? '#8df0a8' : embedded ? '#ffa197' : '#fff1d5';
+    ctx.lineWidth = caught ? 3 : embedded ? 2.8 : 2.35;
+    ctx.beginPath();
+    for (let i = 0; i <= 16; i++) {
+      const t = i / 16, x = (t - .5) * length;
+      const y = Math.sin(t * Math.PI * 3 + state.time * 7 + j.phase) * (embedded ? 1.7 : caught ? .8 : 3.2);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = caught ? '#d6ff94' : '#ffcab8'; ctx.beginPath(); ctx.arc(length / 2, 0, 2.6, 0, TAU); ctx.fill();
+    ctx.font = '700 7px Inter,system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = caught ? '#baffc7' : '#fff1d5';
+    ctx.fillText(embedded ? 'J2 interno' : 'J2', 0, -9);
+    ctx.restore();
+  }
+  function drawAdultFemale(ctx, g, p) {
+    if (p < .72) return;
+    const maturity = clamp((p - .72) / .28 + g.femaleMaturity * .25, 0, 1.2);
+    const bodyW = 9 + maturity * 12;
+    const bodyH = 12 + maturity * 19;
+    ctx.save();
+    ctx.translate(0, 5 + Math.min(8, g.platform.h * .12));
+    const gradient = ctx.createRadialGradient(-bodyW * .25, -bodyH * .2, 2, 0, 0, bodyH);
+    gradient.addColorStop(0, '#fff8e8');
+    gradient.addColorStop(.5, '#f4d7c4');
+    gradient.addColorStop(1, '#c77d73');
+    ctx.fillStyle = gradient;
+    ctx.strokeStyle = '#fff1de';
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    ctx.moveTo(0, -bodyH * .58);
+    ctx.bezierCurveTo(bodyW * .75, -bodyH * .45, bodyW, bodyH * .22, bodyW * .28, bodyH * .62);
+    ctx.bezierCurveTo(0, bodyH * .78, -bodyW * .72, bodyH * .56, -bodyW * .82, 0);
+    ctx.bezierCurveTo(-bodyW * .72, -bodyH * .38, -bodyW * .3, -bodyH * .55, 0, -bodyH * .58);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#8f4f55'; ctx.beginPath(); ctx.arc(0, -bodyH * .54, 2.3, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(177,94,91,.42)'; ctx.lineWidth = .8;
+    for (let i = 0; i < 4; i++) {
+      const yy = -bodyH * .25 + i * bodyH * .19;
+      ctx.beginPath(); ctx.moveTo(-bodyW * .45, yy); ctx.quadraticCurveTo(0, yy + 3, bodyW * .5, yy - 1); ctx.stroke();
+    }
+    ctx.restore();
   }
   function drawGall(ctx, g) {
-    const p = clamp(g.progress, 0, 1), w = 10 + p * 22, h = 7 + p * 15;
+    const p = clamp(g.progress, 0, 1), w = 11 + p * 25, h = 8 + p * 17;
     ctx.save(); ctx.translate(g.x, g.platform.y + 2);
     const gradient = ctx.createRadialGradient(0, 3, 2, 0, 5, w);
     gradient.addColorStop(0, p > .75 ? '#ff9784' : '#e2a670'); gradient.addColorStop(.7, '#9d5b44'); gradient.addColorStop(1, 'rgba(92,49,43,.08)');
     ctx.fillStyle = gradient; ctx.strokeStyle = '#ffcd9f'; ctx.beginPath(); ctx.ellipse(0, 5, w, h, 0, 0, TAU); ctx.fill(); ctx.stroke();
-    if (p > .55) { const f = clamp((p - .55) / .45, 0, 1); ctx.fillStyle = '#fff4da'; ctx.strokeStyle = '#ffa599'; ctx.beginPath(); ctx.ellipse(0, 5, 3 + f * 6, 4 + f * 8, 0, 0, TAU); ctx.fill(); ctx.stroke(); }
-    const labels = { 'feeding-site': 'células gigantes', 'young-gall': 'galha jovem', 'mature-gall': 'galha madura', 'sedentary-female': 'fêmea sedentária', 'adult-female': 'fêmea adulta', 'egg-laying-female': 'oviposição' };
-    ctx.font = '700 8px Inter,system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffd0b0'; ctx.fillText(labels[g.stage] || 'galha', 0, -h - 6); ctx.restore();
+    drawAdultFemale(ctx, g, p);
+    const labels = { 'feeding-site': 'células gigantes', 'young-gall': 'galha jovem', 'mature-gall': 'galha madura', 'sedentary-female': 'fêmea sedentária', 'adult-female': 'fêmea adulta', 'egg-laying-female': 'fêmea + oviposição' };
+    ctx.font = p >= .78 ? '700 9px Inter,system-ui' : '700 8px Inter,system-ui'; ctx.textAlign = 'center';
+    ctx.fillStyle = p >= .78 ? '#fff0df' : '#ffd0b0'; ctx.fillText(labels[g.stage] || 'galha', 0, -h - 8);
+    if (p >= .5) {
+      ctx.fillStyle = '#ff9f8f';
+      ctx.fillText(`−${Math.round((g.permanentPenalty || 0) * 100)}% saúde máxima`, 0, -h - 19);
+    }
+    ctx.restore();
   }
   function render(ctx) {
     ctx.save(); ctx.translate(-state.cameraX, 0);
-    for (const p of roots()) if ((p.rootDamage || 0) >= .06) {
-      const x = p.x + p.w / 2, y = p.y + Math.min(p.h - 10, 34), w = Math.min(72, p.w - 34);
-      ctx.fillStyle = 'rgba(31,17,22,.68)'; ctx.fillRect(x - w / 2 - 2, y - 2, w + 4, 7);
-      ctx.fillStyle = p.rootHealth > .65 ? '#ffd36f' : p.rootHealth > .35 ? '#ff9c70' : '#ff657f'; ctx.fillRect(x - w / 2, y, w * p.rootHealth, 3);
+    for (const p of roots()) if ((p.rootDamage || 0) >= .025) {
+      const x = p.x + p.w / 2, y = p.y + Math.min(p.h - 10, 34), w = Math.min(82, p.w - 34);
+      const maxHealth = clamp(p.rootMaxHealth ?? 1, .01, 1);
+      ctx.fillStyle = 'rgba(31,17,22,.76)'; ctx.fillRect(x - w / 2 - 2, y - 2, w + 4, 12);
+      ctx.fillStyle = '#614256'; ctx.fillRect(x - w / 2, y, w * maxHealth, 3);
+      ctx.fillStyle = p.rootHealth > .75 ? '#9bea8f' : p.rootHealth > .5 ? '#ffd36f' : p.rootHealth > .25 ? '#ff9c70' : '#ff657f';
+      ctx.fillRect(x - w / 2, y + 5, w * p.rootHealth, 3);
     }
     for (const g of galls) if (g.x > state.cameraX - 100 && g.x < state.cameraX + W + 100) drawGall(ctx, g);
     for (const m of eggs) if (m.x > state.cameraX - 80 && m.x < state.cameraX + W + 80) drawEgg(ctx, m);
@@ -322,8 +387,13 @@ export function createMeloidogyneLifecycle({ state, entities }) {
     get gallCount() { return galls.length; },
     get matureGallCount() { return galls.filter(g => g.progress >= .5).length; },
     get femaleCount() { return galls.filter(g => g.progress >= .78).length; },
+    get adultFemaleCount() { return galls.filter(g => g.progress >= 1).length; },
     get rootHealthAverage() { return healthAverage; },
     get infestationPercent() { return infestation * 100; },
+    get healthyRootCount() { return rootGameplay.healthyCount; },
+    get stressedRootCount() { return rootGameplay.stressedCount; },
+    get compromisedRootCount() { return rootGameplay.compromisedCount; },
+    get collapsedRootCount() { return rootGameplay.collapseCount; },
     get eggMasses() { return eggs; }, get juveniles() { return juveniles; }, get galls() { return galls; },
     clear, reset, update, render,
   };
