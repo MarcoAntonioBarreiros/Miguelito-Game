@@ -1,3 +1,9 @@
+import { ensureTutorialInterface } from './tutorial-bootstrap.js';
+import { createTutorialManager } from './tutorial-manager.js';
+import { createTutorialTriggers } from './tutorial-triggers.js';
+
+ensureTutorialInterface();
+
 const coarsePointer = window.matchMedia('(pointer: coarse)').matches
   || navigator.maxTouchPoints > 0;
 
@@ -101,3 +107,47 @@ if (controls && coarsePointer) {
   controls.hidden = false;
   document.body.classList.add('touch-ready');
 }
+
+function initializeTutorialSystem() {
+  const sim = window.miguelitoSim;
+  if (!sim?.state) {
+    requestAnimationFrame(initializeTutorialSystem);
+    return;
+  }
+
+  const originalStep = sim.step.bind(sim);
+  sim.step = dt => {
+    if (sim.state.gameState === 'tutorial') return;
+    originalStep(dt);
+  };
+
+  const manager = createTutorialManager({ state: sim.state });
+  const ralstoniaAdapter = {
+    get foci() { return sim.state.level.ralstoniaFoci || []; },
+  };
+  const trichodermaRhizoctoniaAdapter = {
+    get activeAttackCount() {
+      return (sim.state.level.enemies || []).filter(enemy => enemy.trichodermaRhizoTargeted).length;
+    },
+  };
+
+  const triggers = createTutorialTriggers({
+    state: sim.state,
+    sim,
+    manager,
+    rhizoctoniaControl: null,
+    ralstoniaControl: ralstoniaAdapter,
+    trichodermaRhizoctoniaControl: trichodermaRhizoctoniaAdapter,
+  });
+
+  window.miguelitoTutorial = manager;
+  setTimeout(() => triggers.showWelcome(), 350);
+
+  function tutorialFrame() {
+    triggers.update();
+    requestAnimationFrame(tutorialFrame);
+  }
+  requestAnimationFrame(tutorialFrame);
+}
+
+initializeTutorialSystem();
