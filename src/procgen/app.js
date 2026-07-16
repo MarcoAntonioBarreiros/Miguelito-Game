@@ -5,6 +5,7 @@ import { createRenderer } from '../render/renderer.js';
 import { createPlatformVisuals } from './platform-visuals.js';
 import { createCameraView } from './camera-view.js';
 import { createRhizoctoniaControl } from './rhizoctonia-control.js';
+import { createTrichodermaMeloidogyneControl } from './trichoderma-meloidogyne-control.js';
 import {
   advanceCampaignPhase,
   campaignEncounterTypes,
@@ -34,6 +35,12 @@ const rhizoctoniaControl = createRhizoctoniaControl({
   state: sim.state,
   entities: sim.entities,
   pseudomonas: sim.pseudomonasSiderophores,
+});
+const trichodermaMeloidogyneControl = createTrichodermaMeloidogyneControl({
+  state: sim.state,
+  entities: sim.entities,
+  colonies: sim.trichodermaColonies,
+  lifecycle: sim.meloidogyneLifecycle,
 });
 let profile = null;
 let seed = '';
@@ -139,6 +146,7 @@ function updateTouchAbilityVisibility() {
 function initGame({ announce = false } = {}) {
   sim.reset();
   rhizoctoniaControl.reset();
+  trichodermaMeloidogyneControl.reset();
   sim.state.campaign = campaign;
   Object.assign(sim.state.level, levelData);
   sim.state.player.x = 100;
@@ -251,6 +259,7 @@ function renderWorld() {
     sim.rhizobiumNodulation.render(ctx);
     sim.trichodermaColonies.render(ctx);
     sim.trichoderma.render(ctx);
+    trichodermaMeloidogyneControl.render(ctx);
     sim.mycorrhizaStructures.render(ctx);
     sim.mycorrhiza.render(ctx);
     sim.goal.render(ctx);
@@ -268,9 +277,11 @@ function loop(now) {
     lastTime = now;
 
     rhizoctoniaControl.prepare(dt);
+    trichodermaMeloidogyneControl.update(0);
     sim.setInputs(keys);
     sim.step(dt);
     rhizoctoniaControl.update(dt);
+    trichodermaMeloidogyneControl.update(dt);
     maybeAdvanceCampaign();
     cameraView.update(dt);
     renderWorld();
@@ -310,7 +321,10 @@ function loop(now) {
     const rhizoctonia = rhizoctoniaControl.activeCount
       ? ` | Rhizoctonia: ${rhizoctoniaControl.controlledCount}/${rhizoctoniaControl.activeCount} contida${rhizoctoniaControl.activeCount > 1 ? 's' : ''}`
       : '';
-    hudBar.textContent = `F${campaign.phase} · ${campaign.totalScore} pts | Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exsudatos: ${player.exudates}${infection}${bacillusDefense}${nematodePressure}${rhizoctonia}${abilities ? ' | ' + abilities : ''}`;
+    const trichoNematode = trichodermaMeloidogyneControl.activeAttackCount
+      ? ` | Trichoderma→Meloidogyne: ${trichodermaMeloidogyneControl.activeAttackCount}`
+      : '';
+    hudBar.textContent = `F${campaign.phase} · ${campaign.totalScore} pts | Solo: ${player.soil.toFixed(0)} | Esperança: ${player.hope.toFixed(0)} | Exsudatos: ${player.exudates}${infection}${bacillusDefense}${nematodePressure}${rhizoctonia}${trichoNematode}${abilities ? ' | ' + abilities : ''}`;
 
     if (showDebug) {
       const logicIndex = currentLogicIndex();
@@ -327,6 +341,7 @@ function loop(now) {
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
         + `\nRhizoctonia: ${rhizoctoniaControl.activeCount} focos / ${rhizoctoniaControl.controlledCount} contidos por biocontrole`
         + `\nMeloidogyne: ${sim.meloidogyneLifecycle.eggMassCount} massas (${sim.meloidogyneLifecycle.eggCount} ovos) / ${sim.meloidogyneLifecycle.juvenileCount} J2 livres / ${sim.meloidogyneLifecycle.penetratingCount} penetrando`
+        + `\nTrichoderma anti-Meloidogyne: ${trichodermaMeloidogyneControl.activeAttackCount} ataques (${trichodermaMeloidogyneControl.eggAttackCount} ovos / ${trichodermaMeloidogyneControl.juvenileAttackCount} J2) · ${trichodermaMeloidogyneControl.eggsDestroyed} ovos inviabilizados · ${trichodermaMeloidogyneControl.eggMassesNeutralized} massas neutralizadas · ${trichodermaMeloidogyneControl.juvenilesDestroyed} J2 lisados`
         + `\nGalhas: ${sim.meloidogyneLifecycle.gallCount} totais / ${sim.meloidogyneLifecycle.matureGallCount} maduras / ${sim.meloidogyneLifecycle.femaleCount} fêmeas / saúde radicular média ${rootHealth}%`
         + `\nMicorriza AM: ${sim.mycorrhiza.tipCount} pontas / ${sim.mycorrhiza.branchCount} ramos / ${sim.mycorrhiza.arbusculeCount} arbúsculos`
         + `\nEstruturas AM: ${sim.mycorrhizaStructures.growingCount} crescendo / ${sim.mycorrhizaStructures.matureCount} maduras (${sim.mycorrhizaStructures.ladderCount} escadas, ${sim.mycorrhizaStructures.bridgeCount} pontes)`
