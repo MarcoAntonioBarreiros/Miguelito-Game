@@ -2,6 +2,19 @@ import { H, W } from '../core/constants.js';
 import { clamp } from '../core/math.js';
 import { createMicrobeRenderer } from './microbes.js';
 
+function mixHex(a, b, t) {
+  const value = clamp(t, 0, 1);
+  const parse = color => [
+    parseInt(color.slice(1, 3), 16),
+    parseInt(color.slice(3, 5), 16),
+    parseInt(color.slice(5, 7), 16),
+  ];
+  const [ar, ag, ab] = parse(a);
+  const [br, bg, bb] = parse(b);
+  const channel = (x, y) => Math.round(x + (y - x) * value).toString(16).padStart(2, '0');
+  return `#${channel(ar, br)}${channel(ag, bg)}${channel(ab, bb)}`;
+}
+
 export function createRenderer({ canvas, state, entities }) {
   const ctx = canvas.getContext('2d');
   const microbes = createMicrobeRenderer({ ctx, state, entities });
@@ -55,12 +68,137 @@ export function createRenderer({ canvas, state, entities }) {
     ctx.globalAlpha = 1;
   }
 
+  function drawRootStress(platform, health, time) {
+    const damage = 1 - health;
+    if (damage <= .08) return;
+
+    const veinCount = Math.max(2, Math.floor(damage * 8));
+    ctx.save();
+    ctx.globalAlpha = .18 + damage * .55;
+    ctx.strokeStyle = damage > .62 ? '#4d1f31' : '#813f3d';
+    ctx.lineWidth = 1 + damage * 1.6;
+    for (let i = 0; i < veinCount; i++) {
+      const x = platform.x + 14 + ((i * 47 + platform.logicIndex * 19) % Math.max(20, platform.w - 28));
+      const y = platform.y + 8 + (i % 3) * Math.min(14, platform.h * .18);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + 7 + damage * 10, y + 8);
+      ctx.lineTo(x + 3, y + 15 + damage * 10);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    if (platform.healthTrend) {
+      const alpha = clamp(platform.healthTrendTime || 0, 0, 1) * .34;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = platform.healthTrend > 0 ? '#9dffb1' : '#ff6f91';
+      ctx.lineWidth = 3;
+      roundedRect(platform.x - 2, platform.y - 2, platform.w + 4, platform.h + 4, 15);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (damage > .55) {
+      ctx.save();
+      ctx.globalAlpha = .12 + damage * .18;
+      ctx.fillStyle = '#ff6f91';
+      const pulse = 3 + Math.sin(time * 2.5 + platform.x * .01) * 1.2;
+      for (let i = 0; i < 5; i++) {
+        const x = platform.x + platform.w * (i + .5) / 5;
+        ctx.beginPath();
+        ctx.arc(x, platform.y + 9, pulse, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawRhizoctonia(enemy, index, time) {
+    const hpRatio = clamp((enemy.hp ?? 3) / Math.max(1, enemy.maxHp || 3), 0, 1);
+    const charge = clamp(enemy.attackCharge || 0, 0, 1);
+    const lunge = enemy.mode === 'lunge' ? 1 : 0;
+    const stunned = enemy.mode === 'stunned';
+    const pulse = 1 + Math.sin(time * 2.4 + index) * .05;
+
+    ctx.save();
+    ctx.translate(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2 + 4);
+    ctx.scale(pulse * (1 + charge * .12), pulse * .76);
+
+    ctx.fillStyle = 'rgba(35,17,25,.9)';
+    ctx.beginPath();
+    ctx.ellipse(0, 7, 30, 19, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 18 + charge * 16;
+    ctx.shadowColor = stunned ? '#ffca7d' : '#ff5d82';
+    const cushion = ctx.createRadialGradient(-5, -5, 2, 0, 2, 25);
+    cushion.addColorStop(0, stunned ? '#c98560' : '#b54c64');
+    cushion.addColorStop(.58, '#71334f');
+    cushion.addColorStop(1, '#3b1f31');
+    ctx.fillStyle = cushion;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 22 + charge * 4, 13 + lunge * 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.strokeStyle = stunned ? '#ffd38b' : '#ff8297';
+    ctx.lineWidth = 1.7 + charge;
+    for (let k = 0; k < 8; k++) {
+      const direction = k < 4 ? -1 : 1;
+      const row = k % 4;
+      const startX = direction * (8 + row * 3);
+      const endX = direction * (27 + row * 7 + charge * 13);
+      const endY = 7 + (row - 1.5) * 6;
+      ctx.beginPath();
+      ctx.moveTo(startX, 2 + row);
+      ctx.bezierCurveTo(
+        direction * (16 + row * 4),
+        -8 + row * 5,
+        direction * (22 + row * 5),
+        12 + row * 2,
+        endX,
+        endY,
+      );
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#3a1726';
+    for (let k = 0; k < 7; k++) {
+      const angle = k / 7 * Math.PI * 2 + time * .08;
+      ctx.beginPath();
+      ctx.arc(Math.cos(angle) * 13, Math.sin(angle) * 7, 2.2 + (k % 2), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (charge > .05) {
+      ctx.globalAlpha = .28 + charge * .6;
+      ctx.strokeStyle = '#ff416d';
+      ctx.lineWidth = 2 + charge * 2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 29 + charge * 14, 19 + charge * 7, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.font = '700 9px Inter,system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd5df';
+    ctx.fillText('Rhizoctonia', enemy.x + enemy.w / 2, enemy.y - 13);
+    ctx.fillStyle = 'rgba(22,12,18,.78)';
+    ctx.fillRect(enemy.x - 1, enemy.y - 8, enemy.w + 2, 5);
+    ctx.fillStyle = hpRatio > .5 ? '#ff8297' : '#ffb15c';
+    ctx.fillRect(enemy.x, enemy.y - 7, enemy.w * hpRatio, 3);
+    ctx.restore();
+  }
+
   function drawWorld() {
     const { time, cameraX, level } = state;
     const player = state.player;
     ctx.save();
     ctx.translate(-cameraX, 0);
-    // Only draw hardcoded hyphal network and thick root in original level
     if (level.endX === undefined) {
       ctx.strokeStyle = 'rgba(108,231,223,.22)';
       ctx.lineWidth = 2;
@@ -75,18 +213,26 @@ export function createRenderer({ canvas, state, entities }) {
     }
 
     level.platforms.forEach(p => {
+      const health = p.type === 'root' ? clamp(p.rootHealth ?? 1, .06, 1) : 1;
+      const damage = 1 - health;
       const grad = ctx.createLinearGradient(0, p.y, 0, p.y + p.h);
-      grad.addColorStop(0, p.type === 'root' ? '#c79964' : '#77513b');
-      grad.addColorStop(.15, p.type === 'root' ? '#9a6c4c' : '#5b392f');
-      grad.addColorStop(1, '#241821');
+      const rootTop = mixHex('#c79964', '#703445', damage);
+      const rootMiddle = mixHex('#9a6c4c', '#4a2634', damage);
+      grad.addColorStop(0, p.type === 'root' ? rootTop : '#77513b');
+      grad.addColorStop(.15, p.type === 'root' ? rootMiddle : '#5b392f');
+      grad.addColorStop(1, mixHex('#241821', '#190f18', damage));
       ctx.fillStyle = grad;
       roundedRect(p.x, p.y, p.w, p.h, p.type === 'root' ? 14 : 10);
       ctx.fill();
-      ctx.fillStyle = p.type === 'root' ? 'rgba(255,226,170,.22)' : 'rgba(230,170,100,.12)';
+      ctx.fillStyle = p.type === 'root'
+        ? `rgba(${Math.round(255 - damage * 60)},${Math.round(226 - damage * 115)},${Math.round(170 - damage * 70)},${.22 - damage * .08})`
+        : 'rgba(230,170,100,.12)';
       ctx.fillRect(p.x, p.y, p.w, 5);
       if (p.type !== 'root') {
         ctx.fillStyle = 'rgba(255,255,255,.045)';
         for (let i = 16; i < p.w; i += 32) ctx.fillRect(p.x + i, p.y + 18 + (i % 64), 5, 5);
+      } else {
+        drawRootStress(p, health, time);
       }
     });
 
@@ -106,7 +252,6 @@ export function createRenderer({ canvas, state, entities }) {
       }
     });
 
-    // Only draw hardcoded thick root in original level
     if (level.endX === undefined) {
       ctx.strokeStyle = '#cfaa72';
       ctx.lineWidth = 14;
@@ -244,39 +389,9 @@ export function createRenderer({ canvas, state, entities }) {
       ctx.restore();
     });
 
-    level.enemies.forEach((e, i) => {
-      if (!e.alive) return;
-      ctx.save();
-      ctx.translate(e.x + e.w / 2, e.y + e.h / 2 + Math.sin(time * 3.5 + i) * 3);
-      ctx.shadowBlur = 18;
-      ctx.shadowColor = '#ff6f91';
-      ctx.fillStyle = '#71334f';
-      ctx.beginPath();
-      for (let k = 0; k < 10; k++) {
-        const a = k / 10 * Math.PI * 2;
-        const r = (k % 2 ? 18 : 23) + Math.sin(time * 2 + k + i) * 2;
-        const px = Math.cos(a) * r;
-        const py = Math.sin(a) * r * .72;
-        k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#ff8297';
-      ctx.lineWidth = 2;
-      for (let k = 0; k < 5; k++) {
-        const a = k / 5 * Math.PI * 2 + time * .18;
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(a) * 12, Math.sin(a) * 9);
-        ctx.quadraticCurveTo(Math.cos(a + .4) * 28, Math.sin(a + .4) * 20, Math.cos(a) * 36, Math.sin(a) * 27);
-        ctx.stroke();
-      }
-      ctx.fillStyle = '#ffbfd0';
-      ctx.beginPath();
-      ctx.arc(-6, -4, 2.7, 0, Math.PI * 2);
-      ctx.arc(7, -4, 2.7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+    level.enemies.forEach((enemy, index) => {
+      if (!enemy.alive) return;
+      drawRhizoctonia(enemy, index, time);
     });
 
     level.particles.forEach(p => {
@@ -300,12 +415,48 @@ export function createRenderer({ canvas, state, entities }) {
     ctx.restore();
   }
 
+  function drawFungalAttachment(player, time) {
+    const infection = clamp(player.infection || 0, 0, 1);
+    if (infection < .06) return;
+    const count = 2 + Math.floor(infection * 10);
+    ctx.save();
+    ctx.globalAlpha = .28 + infection * .65;
+    ctx.strokeStyle = infection > .7 ? '#ff657f' : '#c86b85';
+    ctx.fillStyle = infection > .7 ? '#8e2949' : '#71334f';
+    ctx.lineWidth = 1 + infection * 1.2;
+    for (let i = 0; i < count; i++) {
+      const seed = i * 1.73;
+      const x = -10 + ((i * 7) % 21);
+      const y = -12 + ((i * 11) % 31);
+      const radius = 1.4 + (i % 3) * .7 + infection;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      if (i % 2 === 0) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.quadraticCurveTo(
+          x + Math.sin(time * 2 + seed) * 6,
+          y - 5 - infection * 5,
+          x + Math.cos(time + seed) * (7 + infection * 6),
+          y + Math.sin(seed) * 6,
+        );
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
   function drawPlayer() {
     const player = state.player;
     const time = state.time;
     ctx.save();
     ctx.translate(player.x + 16, player.y + 24);
     ctx.scale(player.facing, 1);
+    if (!player.alive) {
+      ctx.rotate(-.28);
+      ctx.globalAlpha = .42;
+    }
     const blink = player.invuln > 0 && Math.floor(time * 14) % 2 === 0;
     if (blink) ctx.globalAlpha = .35;
     ctx.strokeStyle = '#ff6f91';
@@ -343,6 +494,9 @@ export function createRenderer({ canvas, state, entities }) {
     ctx.moveTo(7, 16);
     ctx.lineTo(9, 24);
     ctx.stroke();
+
+    drawFungalAttachment(player, time);
+
     if (player.canPulse) {
       ctx.shadowBlur = 16;
       ctx.shadowColor = '#ffb15c';
@@ -351,6 +505,13 @@ export function createRenderer({ canvas, state, entities }) {
       ctx.arc(15, -2, 4, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
+    }
+
+    if ((player.nematodeLoad || 0) >= 2) {
+      ctx.fillStyle = '#ffd7a0';
+      ctx.font = '800 8px Inter,system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('DASH BLOQUEADO', 0, -36);
     }
     ctx.restore();
   }
