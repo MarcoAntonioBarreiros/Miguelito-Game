@@ -181,6 +181,11 @@ function initGame({ announce = false } = {}) {
   lastToast = '';
   updateTouchAbilityVisibility();
 
+  // O gerador cria simuladores auxiliares para validar a geometria. Somente
+  // esta instância controla o jogo visível e deve alimentar integrações como
+  // o sistema de tutoriais e o diagnóstico exposto no navegador.
+  window.miguelitoSim = sim;
+
   if (announce) {
     sim.state.toast = `Fase ${campaign.phase} — ${profile.title}: ${phaseIntroText()}`;
     sim.state.toastTime = 6;

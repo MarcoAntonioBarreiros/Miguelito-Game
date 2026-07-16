@@ -262,6 +262,5 @@ export function createSimulator() {
     reset, resetEcology, resetBiology, setInputs, step,
   };
 
-  if (typeof window !== 'undefined') window.miguelitoSim = simulator;
   return simulator;
 }

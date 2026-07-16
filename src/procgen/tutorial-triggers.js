@@ -1,6 +1,6 @@
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-export const TUTORIAL_RUNTIME_VERSION = '2026.07.16.4';
+export const TUTORIAL_RUNTIME_VERSION = '2026.07.16.5';
 
 const discoveryCards = {
   rhizobium: 'organism-rhizobium',
