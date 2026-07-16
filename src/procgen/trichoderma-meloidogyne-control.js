@@ -247,6 +247,7 @@ export function createTrichodermaMeloidogyneControl({ state, entities, colonies,
     const rate = .115 + attack.colony.vigor * .105 + clamp(attack.colony.rechargeIntensity || 0, 0, 1) * .09;
     attack.lysis = clamp(attack.lysis + dt * rate, 0, 1);
     vigorDrain(attack, dt, true);
+    if (attack.aborted) return;
 
     while (mass.eggs > 0 && attack.lysis >= attack.nextEggThreshold) {
       mass.eggs--;
@@ -274,6 +275,7 @@ export function createTrichodermaMeloidogyneControl({ state, entities, colonies,
     attack.lysis = clamp(attack.lysis + dt * (.42 + attack.colony.vigor * .35), 0, 1);
     juvenile.trichodermaLysis = attack.lysis;
     vigorDrain(attack, dt, true);
+    if (attack.aborted) return;
     if (attack.lysis >= 1) completeJ2Attack(attack);
   }
 
