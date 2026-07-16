@@ -3,6 +3,7 @@ import { createRandom } from './random.js';
 import { createSimulator } from './simulator.js';
 import { createRenderer } from '../render/renderer.js';
 import { createPlatformVisuals } from './platform-visuals.js';
+import { createCameraView } from './camera-view.js';
 import { microbeEncounters } from '../data/microbes.js';
 
 const canvas = document.querySelector('canvas');
@@ -15,6 +16,7 @@ const toastDiv = document.getElementById('toast');
 let seed = 'solo-vivo-' + Math.floor(Math.random() * 1000);
 let levelData = generateLevel(seed);
 let sim = createSimulator();
+const cameraView = createCameraView({ canvas, state: sim.state });
 let renderer = null;
 let platformVisuals = null;
 let showDebug = true;
@@ -94,6 +96,7 @@ function initGame() {
   sim.state.player.y = 400;
   sim.state.gameState = 'play';
   sim.state.mission = 'Restaure o solo vivo e observe as raízes infestadas por Meloidogyne';
+  cameraView.resetTracking();
   populateMicrobeEncounters(levelData.platforms, seed);
   sim.resetEcology(microbeEncounters);
   sim.resetBiology();
@@ -134,13 +137,10 @@ function currentLogicIndex() {
   return logicIndex;
 }
 
-function loop(now) {
+function renderWorld() {
+  ctx.save();
   try {
-    const dt = Math.max(0, Math.min((now - lastTime) / 1000, .1));
-    lastTime = now;
-
-    sim.setInputs(keys);
-    sim.step(dt);
+    cameraView.apply(ctx);
     renderer.render();
     platformVisuals.drawWorld(ctx);
     sim.pseudomonasSiderophores.renderDeposits(ctx);
@@ -158,6 +158,20 @@ function loop(now) {
     sim.gameplay.render(ctx);
     sim.bacillusBioprotection.render(ctx);
     platformVisuals.renderLabel(ctx);
+  } finally {
+    ctx.restore();
+  }
+}
+
+function loop(now) {
+  try {
+    const dt = Math.max(0, Math.min((now - lastTime) / 1000, .1));
+    lastTime = now;
+
+    sim.setInputs(keys);
+    sim.step(dt);
+    cameraView.update(dt);
+    renderWorld();
 
     if (sim.state.mission) missionDiv.textContent = '🌱 ' + sim.state.mission;
 
@@ -202,6 +216,7 @@ function loop(now) {
       const rootHealth = Math.round(sim.meloidogyneLifecycle.rootHealthAverage * 100);
       debugDiv.textContent = `SEED: ${seed} [R=nova | Tab=debug]\nTrecho ${Math.max(0, logicIndex + 1)}/${levelData.debugInfo.length}`
         + (info ? ` | ${info.primitive} | ${info.logic.difficultyTarget} | vão ${info.gap}px` : '')
+        + `\nCâmera: ${cameraView.zoom.toFixed(2)}× [roda ou +/− | 0=restaurar]`
         + `\nEcologia: ${sim.ecology.agents.length} organismos / ${sim.ecology.nicheCount} nichos`
         + `\nMeloidogyne: ${sim.meloidogyneLifecycle.eggMassCount} massas (${sim.meloidogyneLifecycle.eggCount} ovos) / ${sim.meloidogyneLifecycle.juvenileCount} J2 livres / ${sim.meloidogyneLifecycle.penetratingCount} penetrando`
         + `\nGalhas: ${sim.meloidogyneLifecycle.gallCount} totais / ${sim.meloidogyneLifecycle.matureGallCount} maduras / ${sim.meloidogyneLifecycle.femaleCount} fêmeas / saúde radicular média ${rootHealth}%`
