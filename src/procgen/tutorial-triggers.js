@@ -19,6 +19,12 @@ export function createTutorialTriggers({
   trichodermaRhizoctoniaControl,
 }) {
   let lastCheckAt = -Infinity;
+  let resumeDelayUntil = 0;
+  const observedDiscoveries = new Set();
+
+  window.addEventListener('miguelito:tutorial-close', () => {
+    resumeDelayUntil = performance.now() + 420;
+  });
 
   function playerPoint() {
     return {
@@ -27,10 +33,14 @@ export function createTutorialTriggers({
     };
   }
 
-  function nearPoint(x, y, radius = 520) {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  function distanceToPlayer(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return Infinity;
     const player = playerPoint();
-    return Math.hypot(x - player.x, y - player.y) <= radius;
+    return Math.hypot(x - player.x, y - player.y);
+  }
+
+  function nearPoint(x, y, radius = 520) {
+    return distanceToPlayer(x, y) <= radius;
   }
 
   function nearPlatform(platform, radius = 560) {
@@ -45,9 +55,56 @@ export function createTutorialTriggers({
     return Boolean(condition && manager.trigger(id));
   }
 
-  function updateDiscoveredOrganisms() {
-    for (const [microbeId, cardId] of Object.entries(discoveryCards)) {
-      if (state.discoveredMicrobes.has(microbeId) && manager.trigger(cardId)) return true;
+  function visibleMicrobeCandidate() {
+    const candidates = [];
+
+    for (const agent of sim.ecology.agents || []) {
+      const cardId = discoveryCards[agent.type];
+      if (!cardId || manager.hasSeen(cardId)) continue;
+      const distance = distanceToPlayer(agent.x, agent.y);
+      if (distance > 680) continue;
+      candidates.push({
+        type: agent.type,
+        cardId,
+        distance,
+        source: 'agent',
+      });
+    }
+
+    for (const zone of sim.ecology.encounters || []) {
+      const cardId = discoveryCards[zone.id];
+      if (!cardId || manager.hasSeen(cardId)) continue;
+      const radius = clamp((zone.r || 145) + 360, 500, 760);
+      const distance = distanceToPlayer(zone.x, zone.y);
+      if (distance > radius) continue;
+      candidates.push({
+        type: zone.id,
+        cardId,
+        distance: distance + 35,
+        source: 'community',
+      });
+    }
+
+    candidates.sort((a, b) => a.distance - b.distance);
+    return candidates[0] || null;
+  }
+
+  function triggerVisibleOrganism() {
+    const candidate = visibleMicrobeCandidate();
+    if (!candidate) return false;
+
+    // O cartão identifica formalmente a comunidade que já está visível ao aluno.
+    state.discoveredMicrobes.add(candidate.type);
+    observedDiscoveries.add(candidate.type);
+    return manager.trigger(candidate.cardId);
+  }
+
+  function triggerNewLogicalDiscovery() {
+    for (const microbeId of state.discoveredMicrobes) {
+      if (observedDiscoveries.has(microbeId)) continue;
+      observedDiscoveries.add(microbeId);
+      const cardId = discoveryCards[microbeId];
+      if (cardId && manager.trigger(cardId)) return true;
     }
     return false;
   }
@@ -60,10 +117,13 @@ export function createTutorialTriggers({
     ) return;
 
     const now = performance.now();
-    if (now - lastCheckAt < 180) return;
+    if (now < resumeDelayUntil || now - lastCheckAt < 150) return;
     lastCheckAt = now;
 
-    if (updateDiscoveredOrganisms()) return;
+    // Primeira aparição visual é o gatilho principal. O antigo raio central
+    // da comunidade permanece apenas como mecanismo interno do jogo.
+    if (triggerVisibleOrganism()) return;
+    if (triggerNewLogicalDiscovery()) return;
 
     const player = state.player;
     if (trigger('action-exudate', player.exudates > 0 || (state.level.exudateClouds || []).some(cloud => nearPoint(cloud.x, cloud.y, 360)))) return;
@@ -76,39 +136,39 @@ export function createTutorialTriggers({
     const rhizoctonia = (state.level.enemies || []).find(enemy => (
       enemy.alive
       && (enemy.type === 'rhizoctonia' || Number.isFinite(enemy.colonization))
-      && nearPoint(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, 620)
+      && nearPoint(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, 680)
     ));
     if (trigger('organism-rhizoctonia', rhizoctonia)) return;
 
     const ralstonia = (ralstoniaControl.foci || []).find(focus => (
-      !focus.neutralized && nearPlatform(focus.root, 620)
+      !focus.neutralized && nearPlatform(focus.root, 680)
     ));
     if (trigger('organism-ralstonia', ralstonia)) return;
 
     const juveniles = sim.meloidogyneLifecycle.juveniles || [];
-    const nearbyJ2 = juveniles.find(juvenile => juvenile.alive && nearPoint(juvenile.x, juvenile.y, 480));
+    const nearbyJ2 = juveniles.find(juvenile => juvenile.alive && nearPoint(juvenile.x, juvenile.y, 560));
     if (trigger('organism-meloidogyne-j2', nearbyJ2)) return;
 
     const eggMasses = sim.meloidogyneLifecycle.eggMasses || [];
-    const nearbyEggMass = eggMasses.find(mass => mass.eggs > 0 && nearPoint(mass.x, mass.y, 520));
+    const nearbyEggMass = eggMasses.find(mass => mass.eggs > 0 && nearPoint(mass.x, mass.y, 580));
     if (trigger('structure-egg-mass', nearbyEggMass)) return;
 
     const galls = sim.meloidogyneLifecycle.galls || [];
-    const adultFemale = galls.find(gall => gall.progress >= .78 && nearPoint(gall.x, gall.platform?.y || gall.y, 540));
+    const adultFemale = galls.find(gall => gall.progress >= .78 && nearPoint(gall.x, gall.platform?.y || gall.y, 600));
     if (trigger('organism-meloidogyne-female', adultFemale)) return;
 
-    const nearbyGall = galls.find(gall => gall.progress >= .12 && nearPoint(gall.x, gall.platform?.y || gall.y, 520));
+    const nearbyGall = galls.find(gall => gall.progress >= .12 && nearPoint(gall.x, gall.platform?.y || gall.y, 580));
     if (trigger('structure-gall', nearbyGall)) return;
 
     const nodules = state.level.rhizobiumNodules || [];
-    const nearbyNodule = nodules.find(site => site.compatible && nearPoint(site.x, site.surfaceY, 480));
+    const nearbyNodule = nodules.find(site => site.compatible && nearPoint(site.x, site.surfaceY, 560));
     if (trigger('structure-nodule', nearbyNodule)) return;
 
-    const activeFixation = nodules.find(site => site.fixationRate > .05 && nearPoint(site.x, site.surfaceY, 540));
+    const activeFixation = nodules.find(site => site.fixationRate > .05 && nearPoint(site.x, site.surfaceY, 600));
     if (trigger('process-fbn', activeFixation)) return;
 
     const nearbyBiofilm = (state.level.biofilms || []).find(film => (
-      film.functional && nearPoint(film.x, film.platform?.y ?? film.y, 500)
+      film.functional && nearPoint(film.x, film.platform?.y ?? film.y, 580)
     ));
     if (trigger('structure-biofilm', nearbyBiofilm)) return;
 
@@ -119,18 +179,18 @@ export function createTutorialTriggers({
     if (trigger('process-siderophore', pseudomonasKnown && siderophoreActive)) return;
 
     const nearbyArbuscule = (state.level.mycorrhizaArbuscules || []).find(arbuscule => (
-      arbuscule.maturity > .08 && nearPoint(arbuscule.x, arbuscule.y, 500)
+      arbuscule.maturity > .08 && nearPoint(arbuscule.x, arbuscule.y, 580)
     ));
     if (trigger('structure-arbuscule', nearbyArbuscule)) return;
 
     const mycorrhizaPath = (state.level.platforms || []).find(platform => (
-      platform.mycorrhizaStructure && nearPlatform(platform, 520)
+      platform.mycorrhizaStructure && nearPlatform(platform, 600)
     ));
     if (trigger('structure-mycorrhiza-path', mycorrhizaPath)) return;
 
     const lateralRoot = (state.level.azospirillumRoots || []).find(root => (
       root.visibleProgress > .06
-      && (nearPoint(root.startX, root.startY, 540) || nearPoint(root.endX, root.endY, 540))
+      && (nearPoint(root.startX, root.startY, 600) || nearPoint(root.endX, root.endY, 600))
     ));
     if (trigger('structure-lateral-root', lateralRoot)) return;
 
@@ -139,7 +199,7 @@ export function createTutorialTriggers({
       && !root.final
       && !root.recovery
       && !root.mycorrhizaStructure
-      && nearPlatform(root, 520)
+      && nearPlatform(root, 580)
     ));
     const changedRoot = roots.find(root => root.rootState && root.rootState !== 'healthy');
     if (trigger('process-root-health', changedRoot)) return;
@@ -159,5 +219,24 @@ export function createTutorialTriggers({
     manager.trigger('system-welcome');
   }
 
-  return { update, showWelcome };
+  function diagnostics() {
+    const player = playerPoint();
+    const nearbyAgents = (sim.ecology.agents || [])
+      .map(agent => ({
+        type: agent.type,
+        distance: Math.round(Math.hypot(agent.x - player.x, agent.y - player.y)),
+      }))
+      .filter(agent => agent.distance <= 800)
+      .sort((a, b) => a.distance - b.distance);
+
+    return {
+      gameState: state.gameState,
+      tutorialOpen: manager.isOpen,
+      discovered: [...state.discoveredMicrobes],
+      nearbyAgents,
+      closestCandidate: visibleMicrobeCandidate(),
+    };
+  }
+
+  return { update, showWelcome, diagnostics };
 }
