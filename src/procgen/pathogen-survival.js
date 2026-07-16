@@ -167,7 +167,7 @@ export function createPathogenSurvival({ state, entities, ecology }) {
 
   function damagePlayer(amount = 1, source = 'patógeno', options = {}) {
     const player = state.player;
-    if (state.gameState !== 'play' || !player.alive || player.invuln > 0) return false;
+    if (state.gameState !== 'play' || !player.alive || (player.invuln > 0 && !options.fatal)) return false;
 
     const damage = Math.max(1, Math.round(amount));
     player.vitality = Math.max(0, (player.vitality ?? player.maxVitality ?? 5) - damage);
